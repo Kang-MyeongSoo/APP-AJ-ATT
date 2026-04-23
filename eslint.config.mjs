@@ -18,6 +18,13 @@ const eslintConfig = [
       '@typescript-eslint/no-unused-vars': 'off',
     },
   },
+  {
+    files: ['electron/**/*.js'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-var-requires': 'off',
+    },
+  },
 ];
 
 export default eslintConfig;

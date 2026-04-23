@@ -1,0 +1,47 @@
+appId: com.ajatt.app
+productName: APP-AJ-ATT
+copyright: Copyright © 2026
+
+directories:
+  output: dist-electron
+
+# Electron 메인 프로세스 파일만 ASAR에 포함 (Next.js 서버는 extraResources로 분리)
+asar: true
+
+files:
+  - electron/**/*
+  - package.json
+
+# Next.js standalone 서버와 정적 파일을 ASAR 외부 resources/ 에 배치
+# standalone/server.js 가 __dirname 기준으로 .next, public 을 찾으므로 구조 유지 필수
+extraResources:
+  - from: .next/standalone
+    to: standalone
+    filter:
+      - "**/*"
+  - from: .next/static
+    to: standalone/.next/static
+  - from: public
+    to: standalone/public
+
+mac:
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - ko_KR
+    - en_US
+  language: 1042

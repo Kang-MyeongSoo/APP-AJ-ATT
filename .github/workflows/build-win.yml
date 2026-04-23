@@ -1,0 +1,51 @@
+name: Windows Build
+
+on:
+  # 수동 실행 (Actions 탭 → Run workflow)
+  workflow_dispatch:
+  # main 브랜치에 push될 때 자동 실행
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'electron/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.ts'
+      - 'electron-builder.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: Next.js 빌드
+        run: npm run build
+
+      - name: Electron Windows 패키징
+        run: npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 빌드 결과물 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: APP-AJ-ATT-Windows
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.exe.blockmap
+          retention-days: 7
