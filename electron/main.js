@@ -7,6 +7,8 @@ const { spawn } = require('child_process');
 
 const NEXT_DEV_PORT = 3000;
 const NEXT_PROD_PORT = 3001;
+/** `localhost` 대신 127.0.0.1: Turbopack/Webpack·IPv6/캐시 꼬임을 줄이기 위함 */
+const NEXT_DEV_ORIGIN = `http://127.0.0.1:${NEXT_DEV_PORT}`;
 
 const isDev = !app.isPackaged;
 
@@ -17,10 +19,11 @@ const isDev = !app.isPackaged;
 const NEXT_URL =
   process.env.ELECTRON_TEST_URL ??
   (isDev
-    ? `http://localhost:${NEXT_DEV_PORT}`
-    : `http://localhost:${NEXT_PROD_PORT}`);
+    ? NEXT_DEV_ORIGIN
+    : `http://127.0.0.1:${NEXT_PROD_PORT}`);
 
-const WINDOW_WIDTH = 640;
+/** 입력 폼 + 카메라 2열에 맞게 넉넉히 */
+const WINDOW_WIDTH = 1100;
 const WINDOW_HEIGHT = 900;
 
 /** @type {BrowserWindow | null} */
@@ -82,11 +85,13 @@ function setupIpcHandlers() {
   });
 }
 
-function createWindow() {
+async function createWindow() {
   mainWindow = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
     resizable: true,
+    // Windows·Linux: 창 내메뉴(File/Edit/…)를 기본숨김(Alt 누르면 임시 표시)
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -94,7 +99,10 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadURL(NEXT_URL);
+  if (isDev) {
+    await mainWindow.webContents.session.clearCache();
+  }
+  await mainWindow.loadURL(NEXT_URL);
 
   if (process.env.ELECTRON_DEV_TOOLS === 'true') {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -149,11 +157,11 @@ app.whenReady().then(async () => {
     await startProductionServer();
   }
 
-  createWindow();
+  await createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      void createWindow();
     }
   });
 });
