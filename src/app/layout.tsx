@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'APP-AJ-ATT',
-  description: '카메라 촬영 및 이미지 전송',
+  title: '일용직 근태관리',
+  description: '일용직 근태 입력 및 이미지 전송',
 };
 
 export default function RootLayout({

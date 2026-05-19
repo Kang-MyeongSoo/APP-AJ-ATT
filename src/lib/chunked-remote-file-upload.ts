@@ -18,6 +18,12 @@ export type ChunkedUploadSuccess = {
   flag: number;
 };
 
+export function isChunkedUploadFailure(
+  result: ChunkedUploadSuccess | ChunkedUploadFailure,
+): result is ChunkedUploadFailure {
+  return result.success === false;
+}
+
 export async function uploadBytesByChunks(
   endpoint: string,
   remoteName: string,

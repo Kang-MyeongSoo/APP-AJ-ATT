@@ -87,6 +87,7 @@ function setupIpcHandlers() {
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
+    title: '일용직 근태관리',
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
     resizable: true,

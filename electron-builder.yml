@@ -1,5 +1,5 @@
 appId: com.ajatt.app
-productName: APP-AJ-ATT
+productName: 일용직 근태관리
 copyright: Copyright © 2026
 
 directories:
@@ -41,6 +41,8 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  shortcutName: 일용직 근태관리
+  uninstallDisplayName: 일용직 근태관리
   installerLanguages:
     - ko_KR
     - en_US

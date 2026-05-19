@@ -1,4 +1,7 @@
-import { uploadBytesByChunks } from "@/lib/chunked-remote-file-upload";
+import {
+  isChunkedUploadFailure,
+  uploadBytesByChunks,
+} from "@/lib/chunked-remote-file-upload";
 import { NextRequest, NextResponse } from "next/server";
 
 const IMAGE_SEND_ASP_NAME = "R2JsonProc_image_send.aspx";
@@ -109,7 +112,7 @@ export async function POST(request: NextRequest) {
     bytes,
   );
 
-  if (!uploadResult.success) {
+  if (isChunkedUploadFailure(uploadResult)) {
     return NextResponse.json(
       {
         error: "이미지 업로드에 실패했습니다.",
