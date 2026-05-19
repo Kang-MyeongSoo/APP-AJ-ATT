@@ -22,6 +22,7 @@ import {
   readCameraPreviewWidth,
   writeCameraPreviewWidth,
 } from "@/lib/camera-preview-size-storage";
+import { parseServerBaseUrl } from "@/lib/server-base-url-schema";
 import {
   readServerBaseUrl,
   writeServerBaseUrl,
@@ -31,7 +32,6 @@ import { Settings } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { z } from "zod";
 
 const CAMERA_PREVIEW_PLACEHOLDER_SRC =
   "https://picsum.photos/seed/app-aj-att/800/600";
@@ -69,11 +69,6 @@ type SettingsMenu = "formTitle" | "serverConnection" | "cameraViewSize";
 
 type FormTitleSubView = "template" | "editForm";
 
-const serverBaseUrlSchema = z
-  .string()
-  .trim()
-  .pipe(z.union([z.literal(""), z.string().url()]));
-
 export default function SettingsPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -110,7 +105,7 @@ export default function SettingsPage() {
   };
 
   const handleSaveServerBaseUrl = () => {
-    const parsed = serverBaseUrlSchema.safeParse(serverBaseUrl);
+    const parsed = parseServerBaseUrl(serverBaseUrl);
     if (!parsed.success) {
       toast({
         variant: "destructive",

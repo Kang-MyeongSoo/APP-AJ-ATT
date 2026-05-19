@@ -1,26 +1,50 @@
 'use strict';
 
-const { app, BrowserWindow, session, ipcMain, dialog } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  session,
+  ipcMain,
+  dialog,
+  protocol,
+  net,
+} = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
+const {
+  proxyR2JsonGet,
+  proxyAttEtcDailySave,
+  proxyAttImageUpload,
+} = require('./asp-proxy');
 
 const NEXT_DEV_PORT = 3000;
-const NEXT_PROD_PORT = 3001;
 /** `localhost` 대신 127.0.0.1: Turbopack/Webpack·IPv6/캐시 꼬임을 줄이기 위함 */
 const NEXT_DEV_ORIGIN = `http://127.0.0.1:${NEXT_DEV_PORT}`;
 
 const isDev = !app.isPackaged;
 
+/** file:// 대신 사용 — `/_next/...` 절대 경로·클라이언트 라우팅이 동작함 */
+const STATIC_APP_ORIGIN = 'app://local';
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'app',
+    privileges: {
+      secure: true,
+      standard: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
+
 /**
  * ELECTRON_TEST_URL 환경변수로 임의의 URL(예: http://192.168.0.18:3000)을 주입해
  * non-localhost HTTP 환경에서도 카메라 권한이 동작하는지 검증할 수 있다.
  */
-const NEXT_URL =
-  process.env.ELECTRON_TEST_URL ??
-  (isDev
-    ? NEXT_DEV_ORIGIN
-    : `http://127.0.0.1:${NEXT_PROD_PORT}`);
+const DEV_LOAD_URL = process.env.ELECTRON_TEST_URL ?? NEXT_DEV_ORIGIN;
 
 /** 입력 폼 + 카메라 2열에 맞게 넉넉히 */
 const WINDOW_WIDTH = 1100;
@@ -29,8 +53,61 @@ const WINDOW_HEIGHT = 900;
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 
-/** @type {import('child_process').ChildProcess | null} */
-let nextServerProcess = null;
+function getStaticRoot() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'app-out');
+  }
+  return path.join(__dirname, '..', 'out');
+}
+
+function shouldUseStaticBundle() {
+  if (app.isPackaged) return true;
+  if (process.env.ELECTRON_USE_STATIC !== '1') return false;
+  return fs.existsSync(path.join(getStaticRoot(), 'index.html'));
+}
+
+function resolvePathWithinStaticRoot(urlPathname) {
+  const staticRoot = path.resolve(getStaticRoot());
+  let pathname = decodeURIComponent(urlPathname);
+  if (!pathname || pathname === '/') {
+    return path.join(staticRoot, 'index.html');
+  }
+
+  const relative = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+  let candidate = path.join(staticRoot, relative);
+
+  if (pathname.endsWith('/')) {
+    candidate = path.join(candidate, 'index.html');
+  } else if (!path.extname(candidate) && fs.existsSync(path.join(candidate, 'index.html'))) {
+    candidate = path.join(candidate, 'index.html');
+  }
+
+  const resolved = path.resolve(candidate);
+  if (
+    resolved !== staticRoot &&
+    !resolved.startsWith(staticRoot + path.sep)
+  ) {
+    throw new Error('Forbidden static path');
+  }
+
+  return resolved;
+}
+
+function registerStaticAppProtocol() {
+  protocol.handle('app', async (request) => {
+    try {
+      const { pathname } = new URL(request.url);
+      const filePath = resolvePathWithinStaticRoot(pathname);
+      if (!fs.existsSync(filePath)) {
+        return new Response('Not Found', { status: 404 });
+      }
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Static file error';
+      return new Response(message, { status: 500 });
+    }
+  });
+}
 
 /**
  * 카메라/마이크 등 미디어 권한을 HTTPS 없이도 허용하도록 설정.
@@ -52,10 +129,6 @@ function setupMediaPermissions() {
   );
 }
 
-/**
- * 저장 디렉토리 선택 다이얼로그를 열고 선택된 경로를 반환.
- * 취소 시 null 반환.
- */
 function setupIpcHandlers() {
   ipcMain.handle('select-save-directory', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -83,6 +156,32 @@ function setupIpcHandlers() {
       return { success: false, error: message };
     }
   });
+
+  ipcMain.handle('asp-r2-json-get', (_event, input) => proxyR2JsonGet(input));
+  ipcMain.handle('asp-att-etc-daily-save', (_event, input) =>
+    proxyAttEtcDailySave(input),
+  );
+  ipcMain.handle('asp-att-image-upload', (_event, input) =>
+    proxyAttImageUpload(input),
+  );
+}
+
+async function loadWindowContent() {
+  if (!mainWindow) return;
+
+  if (isDev && !shouldUseStaticBundle()) {
+    await mainWindow.webContents.session.clearCache();
+    await mainWindow.loadURL(DEV_LOAD_URL);
+    return;
+  }
+
+  const indexHtml = path.join(getStaticRoot(), 'index.html');
+  if (!fs.existsSync(indexHtml)) {
+    throw new Error(
+      `정적 UI 번들이 없습니다: ${indexHtml}\n먼저 npm run build 를 실행하세요.`,
+    );
+  }
+  await mainWindow.loadURL(`${STATIC_APP_ORIGIN}/index.html`);
 }
 
 async function createWindow() {
@@ -91,7 +190,6 @@ async function createWindow() {
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
     resizable: true,
-    // Windows·Linux: 창 내메뉴(File/Edit/…)를 기본숨김(Alt 누르면 임시 표시)
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -100,10 +198,7 @@ async function createWindow() {
     },
   });
 
-  if (isDev) {
-    await mainWindow.webContents.session.clearCache();
-  }
-  await mainWindow.loadURL(NEXT_URL);
+  await loadWindowContent();
 
   if (process.env.ELECTRON_DEV_TOOLS === 'true') {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -114,50 +209,12 @@ async function createWindow() {
   });
 }
 
-/**
- * production 빌드 시 extraResources로 복사된 Next.js standalone 서버를 기동.
- *
- * require(serverScript) 대신 child_process.spawn을 사용하는 이유:
- * require()는 ASAR 컨텍스트에서 모듈을 해석하므로 standalone/node_modules/next를
- * 찾지 못한다. 독립 프로세스로 실행하면 cwd 기준으로 모듈을 올바르게 해석한다.
- */
-function startProductionServer() {
-  const standaloneDir = path.join(process.resourcesPath, 'standalone');
-  const serverScript = path.join(standaloneDir, 'server.js');
-
-  nextServerProcess = spawn(process.execPath, [serverScript], {
-    cwd: standaloneDir,
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '1',
-      PORT: String(NEXT_PROD_PORT),
-      HOSTNAME: '127.0.0.1',
-      NODE_ENV: 'production',
-    },
-    stdio: 'pipe',
-  });
-
-  nextServerProcess.stdout?.on('data', (d) =>
-    console.log('[next-server]', d.toString().trim()),
-  );
-  nextServerProcess.stderr?.on('data', (d) =>
-    console.error('[next-server]', d.toString().trim()),
-  );
-  nextServerProcess.on('error', (err) =>
-    console.error('[next-server] 기동 실패:', err),
-  );
-
-  return new Promise((resolve) => setTimeout(resolve, 2500));
-}
-
 app.whenReady().then(async () => {
+  if (shouldUseStaticBundle()) {
+    registerStaticAppProtocol();
+  }
   setupMediaPermissions();
   setupIpcHandlers();
-
-  if (!isDev) {
-    await startProductionServer();
-  }
-
   await createWindow();
 
   app.on('activate', () => {
@@ -165,13 +222,6 @@ app.whenReady().then(async () => {
       void createWindow();
     }
   });
-});
-
-app.on('before-quit', () => {
-  if (nextServerProcess) {
-    nextServerProcess.kill();
-    nextServerProcess = null;
-  }
 });
 
 app.on('window-all-closed', () => {

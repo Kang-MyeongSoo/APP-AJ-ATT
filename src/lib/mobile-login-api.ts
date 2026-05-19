@@ -1,3 +1,4 @@
+import { isAspProxyError, proxyR2JsonGet } from "@/lib/asp-remote-client";
 import { z } from "zod";
 
 export type MobileLoginUser = {
@@ -78,7 +79,7 @@ export async function verifyMobileLogin(
     return { ok: false, message: "비밀번호를 입력해 주세요." };
   }
 
-  const params = new URLSearchParams({
+  const proxy = await proxyR2JsonGet({
     base: trimmedBase,
     proc: "usp_mobile_login",
     param1: trimmedUserId,
@@ -86,37 +87,14 @@ export async function verifyMobileLogin(
     param3: "Y",
   });
 
-  let res: Response;
-  try {
-    res = await fetch(`/api/r2-json?${params.toString()}`, {
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "로그인 요청에 실패했습니다.";
-    return { ok: false, message: msg };
+  if (isAspProxyError(proxy)) {
+    return {
+      ok: false,
+      message: proxy.error || `로그인 요청 실패 (${proxy.status})`,
+    };
   }
 
-  if (!res.ok) {
-    let message = `로그인 요청 실패 (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string };
-      if (typeof err.error === "string" && err.error.length > 0) {
-        message = err.error;
-      }
-    } catch {
-      /* ignore */
-    }
-    return { ok: false, message };
-  }
-
-  let json: unknown;
-  try {
-    json = await res.json();
-  } catch {
-    return { ok: false, message: "서버 응답을 해석할 수 없습니다." };
-  }
+  const json = proxy.data;
 
   const parsed = loginResponseSchema.safeParse(json);
   if (!parsed.success) {

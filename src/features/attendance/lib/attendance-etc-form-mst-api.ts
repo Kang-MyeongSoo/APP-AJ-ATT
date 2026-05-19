@@ -1,3 +1,4 @@
+import { isAspProxyError, proxyR2JsonGet } from "@/lib/asp-remote-client";
 import { z } from "zod";
 
 /** R2Json `usp_mobile_get_mst_code2` + param1 ATT_ETC_FORM 행 타입 */
@@ -75,32 +76,17 @@ export async function fetchEtcFormMstRows(
     return [];
   }
 
-  const params = new URLSearchParams({
+  const proxy = await proxyR2JsonGet({
     base: trimmed,
     proc: "usp_mobile_get_mst_code2",
     param1: "ATT_ETC_FORM",
   });
 
-  const res = await fetch(`/api/r2-json?${params.toString()}`, {
-    method: "GET",
-    credentials: "same-origin",
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    let message = `입력폼 코드 요청 실패 (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string };
-      if (typeof err.error === "string" && err.error.length > 0) {
-        message = err.error;
-      }
-    } catch {
-      /* ignore */
-    }
-    throw new Error(message);
+  if (isAspProxyError(proxy)) {
+    throw new Error(proxy.error || `입력폼 코드 요청 실패 (${proxy.status})`);
   }
 
-  const json: unknown = await res.json();
+  const json: unknown = proxy.data;
   const parsed = responseSchema.safeParse(json);
   if (!parsed.success) {
     throw new Error("입력폼 코드 응답 형식이 올바르지 않습니다.");

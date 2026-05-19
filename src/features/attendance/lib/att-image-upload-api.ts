@@ -1,4 +1,8 @@
 import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
+import {
+  isAspProxyError,
+  proxyAttImageUpload,
+} from "@/lib/asp-remote-client";
 import { format } from "date-fns";
 
 export type AttImageUploadFileInfo = {
@@ -34,22 +38,18 @@ export async function uploadAttImage(
 
   const remoteName = buildAttRemoteImageName(values);
 
-  const res = await fetch("/api/att-image-upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ base, remoteName, base64 }),
-  });
+  const proxy = await proxyAttImageUpload({ base, remoteName, base64 });
 
-  const data = (await res.json().catch(() => ({}))) as {
-    success?: boolean;
-    remoteName?: string;
-    file_name?: string;
-    file_path?: string;
-    error?: string;
-  };
+  if (isAspProxyError(proxy)) {
+    return {
+      success: false,
+      error: proxy.error || "이미지 업로드 중 오류가 발생했습니다.",
+    };
+  }
+
+  const data = proxy.data;
 
   if (
-    !res.ok ||
     !data.success ||
     !data.remoteName ||
     !data.file_name?.trim() ||
@@ -57,7 +57,7 @@ export async function uploadAttImage(
   ) {
     return {
       success: false,
-      error: data.error ?? "이미지 업로드 중 오류가 발생했습니다.",
+      error: "이미지 업로드 중 오류가 발생했습니다.",
     };
   }
 

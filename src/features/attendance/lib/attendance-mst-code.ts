@@ -1,3 +1,4 @@
+import { isAspProxyError, proxyR2JsonGet } from "@/lib/asp-remote-client";
 import { z } from "zod";
 
 export type MstCodeOption = {
@@ -28,32 +29,17 @@ export async function fetchMstCodeOptions(
     return [];
   }
 
-  const params = new URLSearchParams({
+  const proxy = await proxyR2JsonGet({
     base: trimmedBase,
     proc: "usp_mobile_get_mst_code",
     param1: trimmedParam,
   });
 
-  const res = await fetch(`/api/r2-json?${params.toString()}`, {
-    method: "GET",
-    credentials: "same-origin",
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    let message = `코드 목록 요청 실패 (${res.status})`;
-    try {
-      const err = (await res.json()) as { error?: string };
-      if (typeof err.error === "string" && err.error.length > 0) {
-        message = err.error;
-      }
-    } catch {
-      /* ignore */
-    }
-    throw new Error(message);
+  if (isAspProxyError(proxy)) {
+    throw new Error(proxy.error || `코드 목록 요청 실패 (${proxy.status})`);
   }
 
-  const json: unknown = await res.json();
+  const json: unknown = proxy.data;
   const parsed = mstCodeResponseSchema.safeParse(json);
   if (!parsed.success) {
     throw new Error("코드 목록 응답 형식이 올바르지 않습니다.");

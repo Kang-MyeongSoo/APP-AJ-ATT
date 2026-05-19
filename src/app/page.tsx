@@ -30,6 +30,7 @@ import {
   type R2FlagMsgDialogContent,
 } from "@/lib/r2-flag-msg-response";
 import { verifyMobileLogin } from "@/lib/mobile-login-api";
+import { ServerBaseUrlSetupScreen } from "@/features/settings/components/server-base-url-setup-screen";
 import { readServerBaseUrl } from "@/lib/server-connection-storage";
 import { writeSettingsSessionLoginId } from "@/lib/settings-session-storage";
 import {
@@ -149,6 +150,9 @@ export default function Home() {
   const [cameraPreviewWidth, setCameraPreviewWidth] = useState(
     CAMERA_PREVIEW_WIDTH_DEFAULT,
   );
+  const [serverBaseUrlReady, setServerBaseUrlReady] = useState(() =>
+    readServerBaseUrl().trim().length > 0,
+  );
 
   useEffect(() => {
     const parsed = parseAttendanceFormTexts(
@@ -156,6 +160,7 @@ export default function Home() {
     );
     if (parsed) setAttendanceFormTexts(parsed);
     setCameraPreviewWidth(readCameraPreviewWidth());
+    setServerBaseUrlReady(readServerBaseUrl().trim().length > 0);
   }, []);
 
   const stopStream = useCallback(() => {
@@ -375,6 +380,14 @@ export default function Home() {
       setSettingsLoginSubmitting(false);
     }
   };
+
+  if (!serverBaseUrlReady) {
+    return (
+      <ServerBaseUrlSetupScreen
+        onSaved={() => setServerBaseUrlReady(true)}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-white text-base text-zinc-900">

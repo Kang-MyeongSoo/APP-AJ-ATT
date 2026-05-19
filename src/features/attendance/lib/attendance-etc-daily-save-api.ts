@@ -1,5 +1,9 @@
 import type { AttImageUploadFileInfo } from "@/features/attendance/lib/att-image-upload-api";
 import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
+import {
+  isAspProxyError,
+  proxyAttEtcDailySave,
+} from "@/lib/asp-remote-client";
 import { encodeAspUtf8JsonField } from "@/lib/legacy-asp-json-body";
 
 export const ATT_ETC_DAILY_SAVE_USER_ID = "DesktopApp";
@@ -82,13 +86,17 @@ export async function postAttEtcDailySave(
   }
 
   const payload = buildAttEtcDailySaveBody(values, fileInfo);
-  console.log("[att-etc-daily-save] POST /api/att-etc-daily-save", payload);
+  console.log("[att-etc-daily-save] IPC → ASP", payload);
 
-  const res = await fetch("/api/att-etc-daily-save", {
-    method: "POST",
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-    body: JSON.stringify({ base, payload }),
-  });
+  const proxy = await proxyAttEtcDailySave({ base, payload });
 
-  return res.json() as Promise<AttEtcDailySaveApiJson | { error: string }>;
+  if (isAspProxyError(proxy)) {
+    return { error: proxy.error };
+  }
+
+  return {
+    ok: proxy.ok,
+    status: proxy.status,
+    data: proxy.data,
+  };
 }
