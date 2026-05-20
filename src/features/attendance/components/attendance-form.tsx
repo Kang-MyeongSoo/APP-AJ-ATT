@@ -13,7 +13,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { useForm, useWatch, type FieldErrors } from "react-hook-form";
+import {
+  useForm,
+  useWatch,
+  type FieldErrors,
+  type Resolver,
+} from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,6 +48,7 @@ import {
 import {
   attendanceFormSchema,
   OVERTIME_MINUTE_OPTIONS,
+  resolveOvertimeSelectValue,
   type AttendanceFormValues,
 } from "../lib/attendance-form-schema";
 import {
@@ -54,7 +60,13 @@ import {
   fetchEtcFormMstRows,
   type EtcFormMstRow,
 } from "../lib/attendance-etc-form-mst-api";
+import { RegNumberMaskedInput } from "./reg-number-masked-input";
+import { useRegNumberLookup } from "../hooks/use-reg-number-lookup";
 import { handleAttendanceFormEnterKeyDown } from "../lib/attendance-form-enter-navigation";
+import {
+  ATTENDANCE_FIELD_CODES_ORDERED,
+  normalizeAttendanceFieldCode,
+} from "../lib/attendance-field-codes";
 import {
   applyCaseWhenDrivenFormFields,
   buildAttendanceFieldValuesByCode,
@@ -63,15 +75,34 @@ import {
   createDefaultAttendanceFormValues,
   isCaseWhenInitialValue,
   resolveEtcAttr3Initial,
+  resolveEtcComboInitialValue,
 } from "../lib/attendance-initial-value";
 import {
-  hasWorkTimeInput,
+  applyCurrentWorkDateSync,
+  applyWorkInOutTimeSync,
   isNightShift,
+  isPeerWorkTimeInputDisabled,
+  isWorkTimeFormatHint,
   normalizeEtcInputKind,
   parseEtcAttr2Options,
+  resolveWorkInOutKind,
+  sanitizeWorkTimeValue,
+  subscribeLiveAttendanceClockSync,
 } from "../lib/etc-form-input-kind";
-import { Loader2, RefreshCw } from "lucide-react";
+import { lockedFieldInputClass } from "../lib/attendance-locked-field-input";
+import {
+  ATTENDANCE_FORM_FONT_SCALE_MAX,
+  ATTENDANCE_FORM_FONT_SCALE_MIN,
+  formatAttendanceFormFontScaleLabel,
+  useAttendanceFormFontScaleStore,
+} from "@/features/attendance/stores/attendance-form-font-scale-store";
+import { useRegNumberMaskStore } from "@/features/attendance/stores/reg-number-mask-store";
+import { Loader2, Minus, Plus, RefreshCw } from "lucide-react";
 import { AttendanceFormEtcDynamicRows } from "./attendance-form-etc-dynamic-rows";
+import { WorkDateDisplay } from "./work-date-display";
+
+const floatingToolbarButtonClass =
+  "pointer-events-auto rounded-full border-zinc-300 bg-white text-zinc-700 shadow-sm hover:bg-zinc-100";
 
 const inputClass =
   "h-10 border-zinc-300 bg-white text-sm text-zinc-900 placeholder:text-zinc-400";
@@ -82,11 +113,11 @@ const selectTriggerClass = cn(
 );
 
 const tdL =
-  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-top whitespace-pre-wrap text-sm text-zinc-800";
+  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-middle whitespace-pre-wrap text-sm text-zinc-800";
 const tdM =
-  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-top min-w-0";
+  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-top min-w-[13rem]";
 const tdR =
-  "border-b border-zinc-200 bg-white px-2 py-2 align-top text-xs leading-snug text-zinc-600 sm:text-sm";
+  "border-b border-zinc-200 bg-white px-2 py-2 align-middle text-xs leading-snug text-zinc-600 sm:text-sm";
 const thL = cn(tdL, "bg-zinc-100 text-zinc-900");
 const thM = cn(tdM, "bg-zinc-100 text-zinc-900");
 const thR = cn(tdR, "bg-zinc-100 text-zinc-800");
@@ -96,17 +127,15 @@ const tdRLast = cn(tdR, "border-b-0");
 
 const ru = (t: ReactNode) => <>{t}</>;
 
+function radioGroupClass(optionCount: number): string {
+  return cn(
+    "flex items-center rounded-md border border-zinc-300 bg-white px-3 py-2",
+    optionCount <= 3 ? "flex-nowrap gap-4" : "flex-wrap gap-6",
+  );
+}
+
 const EMPTY_DEPARTMENT_OPTIONS: DepartmentWorkOption[] = [];
 const EMPTY_ETC_FORM_ROWS: EtcFormMstRow[] = [];
-
-/** ATT_ETC_FORM `c_code` → 양식 필드 코드 "01" … "12" */
-function normalizeAttendanceFieldCode(c_code: string): string | null {
-  const t = c_code.trim();
-  if (!t || t.toLowerCase() === "title") return null;
-  const n = Number.parseInt(t, 10);
-  if (!Number.isFinite(n) || n < 1 || n > 12) return null;
-  return String(n).padStart(2, "0");
-}
 
 function formatOvertimeLabel(minutes: number): string {
   if (minutes === 0) return "없음 (0분)";
@@ -172,6 +201,11 @@ export const AttendanceForm = forwardRef<
   ref,
 ) {
   const attendanceFormRef = useRef<HTMLFormElement>(null);
+  const fontScale = useAttendanceFormFontScaleStore((s) => s.scale);
+  const decreaseFontScale = useAttendanceFormFontScaleStore((s) => s.decrease);
+  const increaseFontScale = useAttendanceFormFontScaleStore((s) => s.increase);
+  const canDecreaseFontScale = fontScale > ATTENDANCE_FORM_FONT_SCALE_MIN;
+  const canIncreaseFontScale = fontScale < ATTENDANCE_FORM_FONT_SCALE_MAX;
   const formTexts = mergeAttendanceFormTexts(
     texts ?? defaultAttendanceFormTexts,
   );
@@ -204,9 +238,7 @@ export const AttendanceForm = forwardRef<
   const etcAttr2Fetching = useIsFetching({ queryKey: ["etcAttr2Options"] });
 
   const masterRefetching =
-    etcFormQuery.isFetching ||
-    deptQuery.isFetching ||
-    etcAttr2Fetching > 0;
+    etcFormQuery.isFetching || deptQuery.isFetching || etcAttr2Fetching > 0;
 
   const handleReloadAttendanceMaster = () => {
     void Promise.all([
@@ -225,13 +257,15 @@ export const AttendanceForm = forwardRef<
     [etcFormQuery.data],
   );
   const headerRow = useMemo(
-    () => etcFormRows.find((row) => row.c_code.trim().toLowerCase() === "title"),
+    () =>
+      etcFormRows.find((row) => row.c_code.trim().toLowerCase() === "title"),
     [etcFormRows],
   );
   const tableHeaderCategory = headerRow?.c_name
     ? normalizeMasterMultiline(headerRow.c_name)
     : renderText("tableHeaderCategory");
-  const tableHeaderContent = headerRow?.c_attr1 || renderText("tableHeaderContent");
+  const tableHeaderContent =
+    headerRow?.c_attr1 || renderText("tableHeaderContent");
   const tableHeaderNote = headerRow?.c_attr4
     ? normalizeMasterMultiline(headerRow.c_attr4)
     : renderText("tableHeaderNote");
@@ -265,18 +299,19 @@ export const AttendanceForm = forwardRef<
     fieldCode: string;
     fallbackKey: keyof AttendanceFormTexts;
   }> = [
-    { fieldCode: "01", fallbackKey: "companyLabel" },
-    { fieldCode: "02", fallbackKey: "nameLabel" },
-    { fieldCode: "03", fallbackKey: "regNumberLabel" },
+    { fieldCode: "01", fallbackKey: "regNumberLabel" },
+    { fieldCode: "02", fallbackKey: "companyLabel" },
+    { fieldCode: "03", fallbackKey: "nameLabel" },
     { fieldCode: "04", fallbackKey: "phoneLabel" },
     { fieldCode: "05", fallbackKey: "genderLabel" },
     { fieldCode: "06", fallbackKey: "dateLabel" },
     { fieldCode: "07", fallbackKey: "shiftLabel" },
-    { fieldCode: "08", fallbackKey: "startTimeLabel" },
-    { fieldCode: "09", fallbackKey: "endTimeLabel" },
-    { fieldCode: "10", fallbackKey: "overtimeLabel" },
-    { fieldCode: "11", fallbackKey: "dinnerLabel" },
-    { fieldCode: "12", fallbackKey: "departmentLabel" },
+    { fieldCode: "08", fallbackKey: "workInOutLabel" },
+    { fieldCode: "09", fallbackKey: "startTimeLabel" },
+    { fieldCode: "10", fallbackKey: "endTimeLabel" },
+    { fieldCode: "11", fallbackKey: "overtimeLabel" },
+    { fieldCode: "12", fallbackKey: "dinnerLabel" },
+    { fieldCode: "13", fallbackKey: "departmentLabel" },
   ];
 
   const getFirstColumnForFieldCode = (
@@ -301,8 +336,7 @@ export const AttendanceForm = forwardRef<
   const staticFieldOpts05 = useMemo(() => {
     const row = etcFormRows.find(
       (r) =>
-        normalizeAttendanceFieldCode(r.c_code) === "05" &&
-        r.use_flag === "Y",
+        normalizeAttendanceFieldCode(r.c_code) === "05" && r.use_flag === "Y",
     );
     return row ? parseEtcAttr2Options(row.c_attr2) : [];
   }, [etcFormRows]);
@@ -310,29 +344,53 @@ export const AttendanceForm = forwardRef<
   const staticFieldOpts07 = useMemo(() => {
     const row = etcFormRows.find(
       (r) =>
-        normalizeAttendanceFieldCode(r.c_code) === "07" &&
-        r.use_flag === "Y",
+        normalizeAttendanceFieldCode(r.c_code) === "07" && r.use_flag === "Y",
     );
     return row ? parseEtcAttr2Options(row.c_attr2) : [];
   }, [etcFormRows]);
 
+  const workInOutOptions = useMemo(() => {
+    const row = etcFormRows.find(
+      (r) =>
+        normalizeAttendanceFieldCode(r.c_code) === "08" && r.use_flag === "Y",
+    );
+    return row ? parseEtcAttr2Options(row.c_attr2) : [];
+  }, [etcFormRows]);
+
+  const staticFieldOpts08 = workInOutOptions;
+
   const form = useForm<AttendanceFormValues>({
-    resolver: zodResolver(attendanceFormSchema),
+    resolver: zodResolver(
+      attendanceFormSchema,
+    ) as Resolver<AttendanceFormValues>,
     defaultValues: createDefaultAttendanceFormValues(),
     mode: "onChange",
   });
 
   const { control, setValue, getValues, trigger, reset } = form;
 
+  const { onRegNumberKeyDown } = useRegNumberLookup({
+    serverBaseUrl,
+    sortedEnabledRows,
+    setValue,
+    formRef: attendanceFormRef,
+  });
+
+  const remaskRegNumber = useRegNumberMaskStore((s) => s.remask);
+
   const resetAfterSuccessfulSubmit = useCallback(() => {
     const nextValues = useServerLayout
-      ? buildAttendanceFormResetValues(
-          sortedEnabledRows,
-          departmentOptions,
-        )
+      ? buildAttendanceFormResetValues(sortedEnabledRows, departmentOptions)
       : createDefaultAttendanceFormValues();
     reset(nextValues, { keepDefaultValues: false });
-  }, [reset, useServerLayout, sortedEnabledRows, departmentOptions]);
+    remaskRegNumber();
+  }, [
+    reset,
+    remaskRegNumber,
+    useServerLayout,
+    sortedEnabledRows,
+    departmentOptions,
+  ]);
 
   useImperativeHandle(
     ref,
@@ -354,12 +412,11 @@ export const AttendanceForm = forwardRef<
 
   useEffect(() => {
     if (!departmentOptions.length) return;
-    const current = getValues("department");
+    const current = getValues("department").trim();
+    if (!current) return;
     const valid = departmentOptions.some((o) => o.c_code === current);
-    if (!current || !valid) {
-      setValue("department", departmentOptions[0].c_code, {
-        shouldValidate: true,
-      });
+    if (!valid) {
+      setValue("department", "", { shouldValidate: true });
     }
   }, [departmentOptions, getValues, setValue]);
   useWatch({ control, name: "workDate" });
@@ -373,10 +430,77 @@ export const AttendanceForm = forwardRef<
     control,
     name: caseWhenDependencyNames,
   });
+  const watchedWorkInOut = useWatch({ control, name: "workInOut" }) ?? "";
   const watchedStartTime = useWatch({ control, name: "startTime" }) ?? "";
   const watchedEndTime = useWatch({ control, name: "endTime" }) ?? "";
-  const startTimeInputDisabled = hasWorkTimeInput(String(watchedEndTime));
-  const endTimeInputDisabled = hasWorkTimeInput(String(watchedStartTime));
+  const workInOutKind = useMemo(
+    () => resolveWorkInOutKind(String(watchedWorkInOut), workInOutOptions),
+    [watchedWorkInOut, workInOutOptions],
+  );
+  const workTimeAutoOnly = workInOutOptions.length > 0;
+  const startTimeInputDisabled =
+    workTimeAutoOnly ||
+    isPeerWorkTimeInputDisabled(
+      "start",
+      workInOutKind,
+      String(watchedEndTime),
+    );
+  const endTimeInputDisabled =
+    workTimeAutoOnly ||
+    isPeerWorkTimeInputDisabled(
+      "end",
+      workInOutKind,
+      String(watchedStartTime),
+    );
+
+  const enabledFieldCodes = useMemo(
+    () =>
+      new Set(
+        sortedEnabledRows
+          .map((r) => normalizeAttendanceFieldCode(r.c_code))
+          .filter((c): c is string => c != null),
+      ),
+    [sortedEnabledRows],
+  );
+
+  const canSetWorkDate = !useServerLayout || enabledFieldCodes.has("06");
+  const canSetStartTime = !useServerLayout || enabledFieldCodes.has("09");
+  const canSetEndTime = !useServerLayout || enabledFieldCodes.has("10");
+  const liveWorkDateEnabled = canSetWorkDate;
+
+  const syncWorkInOutTime = useCallback(() => {
+    if (workInOutOptions.length === 0 || !workInOutKind) return;
+    applyWorkInOutTimeSync({
+      workInOutKind,
+      setValue,
+      canSetStart: canSetStartTime,
+      canSetEnd: canSetEndTime,
+    });
+  }, [
+    workInOutKind,
+    workInOutOptions.length,
+    setValue,
+    canSetStartTime,
+    canSetEndTime,
+  ]);
+
+  const syncLiveWorkDate = useCallback(() => {
+    applyCurrentWorkDateSync({ setValue, canSet: liveWorkDateEnabled });
+  }, [liveWorkDateEnabled, setValue]);
+
+  const syncLiveAttendanceFields = useCallback(() => {
+    syncLiveWorkDate();
+    syncWorkInOutTime();
+  }, [syncLiveWorkDate, syncWorkInOutTime]);
+
+  useEffect(() => {
+    if (isWorkTimeFormatHint(String(watchedStartTime))) {
+      setValue("startTime", "", { shouldValidate: true });
+    }
+    if (isWorkTimeFormatHint(String(watchedEndTime))) {
+      setValue("endTime", "", { shouldValidate: true });
+    }
+  }, [watchedStartTime, watchedEndTime, setValue]);
 
   useEffect(() => {
     if (useServerLayout) return;
@@ -399,21 +523,21 @@ export const AttendanceForm = forwardRef<
         .filter((c): c is string => c != null),
     );
     if (!visible.has("01")) {
-      setValue("companyName", "-", { shouldValidate: true });
+      setValue("regNumber", "0000000000000", { shouldValidate: true });
     }
     if (!visible.has("02")) {
-      setValue("fullName", "-", { shouldValidate: true });
+      setValue("companyName", "-", { shouldValidate: true });
     }
     if (!visible.has("03")) {
-      setValue("regNumber", "0000000000000", { shouldValidate: true });
+      setValue("fullName", "-", { shouldValidate: true });
     }
     if (!visible.has("04")) {
       setValue("phone", "01000000000", { shouldValidate: true });
     }
-    if (!visible.has("08")) {
+    if (!visible.has("09")) {
       setValue("startTime", "", { shouldValidate: true });
     }
-    if (!visible.has("09")) {
+    if (!visible.has("10")) {
       setValue("endTime", "", { shouldValidate: true });
     }
     if (!visible.has("05") && !getValues("gender").trim()) {
@@ -422,13 +546,13 @@ export const AttendanceForm = forwardRef<
     if (!visible.has("07") && !getValues("shift").trim()) {
       setValue("shift", "D", { shouldValidate: true });
     }
-    if (!visible.has("10")) {
+    if (!visible.has("11")) {
       setValue("overtimeMinutes", 0, { shouldValidate: true });
     }
-    if (!visible.has("11")) {
+    if (!visible.has("12")) {
       setValue("dinner", "N", { shouldValidate: true });
     }
-    if (!visible.has("12") && departmentOptions[0]?.c_code) {
+    if (!visible.has("13") && departmentOptions[0]?.c_code) {
       setValue("department", departmentOptions[0].c_code, {
         shouldValidate: true,
       });
@@ -452,36 +576,9 @@ export const AttendanceForm = forwardRef<
         .filter((e): e is readonly [string, EtcFormMstRow] => e != null),
     );
 
-    const pickComboString = (row: EtcFormMstRow): string | undefined => {
-      const opts = parseEtcAttr2Options(row.c_attr2);
-      if (opts.length === 0) return undefined;
-      const raw = row.c_attr3?.trim() ?? "";
-      if (!raw || isCaseWhenInitialValue(raw)) return opts[0]?.value;
-      const exact = opts.find((o) => o.value === raw);
-      if (exact) return exact.value;
-      const ci = opts.find(
-        (o) => o.value.toLowerCase() === raw.toLowerCase(),
-      );
-      return ci?.value ?? opts[0]?.value;
-    };
-
     const fieldValuesByCode = buildAttendanceFieldValuesByCode(getValues());
 
-    const ordered = [
-      "01",
-      "02",
-      "03",
-      "04",
-      "05",
-      "06",
-      "07",
-      "08",
-      "09",
-      "10",
-      "11",
-      "12",
-    ] as const;
-    for (const code of ordered) {
+    for (const code of ATTENDANCE_FIELD_CODES_ORDERED) {
       const row = byCode.get(code);
       if (!row) continue;
       const init = row.c_attr3?.trim() ?? "";
@@ -490,21 +587,29 @@ export const AttendanceForm = forwardRef<
       switch (code) {
         case "01":
           if (init && !isCaseWhenInitialValue(init)) {
-            setValue("companyName", init, { shouldValidate: true });
-            fieldValuesByCode["01"] = init;
+            const v = init.replace(/\D/g, "").slice(0, 13);
+            setValue("regNumber", v, { shouldValidate: true });
+            fieldValuesByCode["01"] = v;
           }
           break;
-        case "02":
-          if (init && !isCaseWhenInitialValue(init)) {
-            setValue("fullName", init, { shouldValidate: true });
+        case "02": {
+          const opts = parseEtcAttr2Options(row.c_attr2);
+          if (kind === "combo" && opts.length > 0) {
+            const v = resolveEtcComboInitialValue(row);
+            if (v) {
+              setValue("companyName", v, { shouldValidate: true });
+              fieldValuesByCode["02"] = v;
+            }
+          } else if (init && !isCaseWhenInitialValue(init)) {
+            setValue("companyName", init, { shouldValidate: true });
             fieldValuesByCode["02"] = init;
           }
           break;
+        }
         case "03":
           if (init && !isCaseWhenInitialValue(init)) {
-            const v = init.replace(/\D/g, "").slice(0, 13);
-            setValue("regNumber", v, { shouldValidate: true });
-            fieldValuesByCode["03"] = v;
+            setValue("fullName", init, { shouldValidate: true });
+            fieldValuesByCode["03"] = init;
           }
           break;
         case "04":
@@ -517,7 +622,7 @@ export const AttendanceForm = forwardRef<
         case "05": {
           const opts = parseEtcAttr2Options(row.c_attr2);
           if (opts.length > 0) {
-            const v = pickComboString(row);
+            const v = resolveEtcComboInitialValue(row);
             if (v) {
               setValue("gender", v, { shouldValidate: true });
               fieldValuesByCode["05"] = v;
@@ -529,7 +634,7 @@ export const AttendanceForm = forwardRef<
           break;
         }
         case "06":
-          if (init) {
+          if (!liveWorkDateEnabled && init) {
             const v = resolveEtcAttr3Initial(init, fieldValuesByCode, {
               inputKind: kind,
             });
@@ -540,7 +645,7 @@ export const AttendanceForm = forwardRef<
         case "07": {
           const opts = parseEtcAttr2Options(row.c_attr2);
           if (opts.length > 0) {
-            const v = pickComboString(row);
+            const v = resolveEtcComboInitialValue(row);
             if (v) {
               setValue("shift", v, { shouldValidate: true });
               fieldValuesByCode["07"] = v;
@@ -552,26 +657,53 @@ export const AttendanceForm = forwardRef<
           break;
         }
         case "08": {
-          const v = resolveEtcAttr3Initial(init, fieldValuesByCode, {
-            inputKind: kind,
-            excludeFieldCode: "08",
-          });
-          setValue("startTime", v, { shouldValidate: true });
-          fieldValuesByCode["08"] = v;
+          const currentWorkInOut = getValues("workInOut").trim();
+          if (workTimeAutoOnly && currentWorkInOut) {
+            fieldValuesByCode["08"] = currentWorkInOut;
+            break;
+          }
+          const opts = parseEtcAttr2Options(row.c_attr2);
+          if (opts.length > 0) {
+            const v = resolveEtcComboInitialValue(row);
+            if (v) {
+              setValue("workInOut", v, { shouldValidate: true });
+              fieldValuesByCode["08"] = v;
+            }
+          } else if (init && !isCaseWhenInitialValue(init)) {
+            setValue("workInOut", init, { shouldValidate: true });
+            fieldValuesByCode["08"] = init;
+          }
           break;
         }
         case "09": {
-          const v = resolveEtcAttr3Initial(init, fieldValuesByCode, {
-            inputKind: kind,
-            excludeFieldCode: "09",
-          });
-          setValue("endTime", v, { shouldValidate: true });
-          fieldValuesByCode["09"] = v;
+          if (!workTimeAutoOnly) {
+            const v = sanitizeWorkTimeValue(
+              resolveEtcAttr3Initial(init, fieldValuesByCode, {
+                inputKind: kind,
+                excludeFieldCode: "09",
+              }),
+            );
+            setValue("startTime", v, { shouldValidate: true });
+            fieldValuesByCode["09"] = v;
+          }
           break;
         }
-        case "10":
+        case "10": {
+          if (!workTimeAutoOnly) {
+            const v = sanitizeWorkTimeValue(
+              resolveEtcAttr3Initial(init, fieldValuesByCode, {
+                inputKind: kind,
+                excludeFieldCode: "10",
+              }),
+            );
+            setValue("endTime", v, { shouldValidate: true });
+            fieldValuesByCode["10"] = v;
+          }
+          break;
+        }
+        case "11":
           if (kind === "combo") {
-            const v = pickComboString(row);
+            const v = resolveEtcComboInitialValue(row);
             if (v) {
               const n = Number.parseInt(v, 10);
               if (Number.isFinite(n)) {
@@ -585,9 +717,9 @@ export const AttendanceForm = forwardRef<
             }
           }
           break;
-        case "11":
+        case "12":
           if (kind === "combo") {
-            const v = pickComboString(row);
+            const v = resolveEtcComboInitialValue(row);
             if (v === "Y" || v === "N") {
               setValue("dinner", v, { shouldValidate: true });
             }
@@ -597,9 +729,9 @@ export const AttendanceForm = forwardRef<
             });
           }
           break;
-        case "12":
+        case "13":
           if (kind === "combo") {
-            const v = pickComboString(row);
+            const v = resolveEtcComboInitialValue(row);
             if (v) setValue("department", v, { shouldValidate: true });
           } else if (init) {
             setValue("department", init, { shouldValidate: true });
@@ -615,8 +747,21 @@ export const AttendanceForm = forwardRef<
       buildAttendanceFieldValuesByCode(getValues()),
       getValues,
       setValue,
+      {
+        managedByWorkInOut: workTimeAutoOnly,
+        managedLiveDate: liveWorkDateEnabled,
+      },
     );
-  }, [useServerLayout, sortedEnabledRows, setValue, getValues]);
+    syncLiveAttendanceFields();
+  }, [
+    useServerLayout,
+    sortedEnabledRows,
+    setValue,
+    getValues,
+    workTimeAutoOnly,
+    liveWorkDateEnabled,
+    syncLiveAttendanceFields,
+  ]);
 
   useEffect(() => {
     if (!useServerLayout) return;
@@ -630,14 +775,22 @@ export const AttendanceForm = forwardRef<
         .filter((e): e is readonly [string, EtcFormMstRow] => e != null),
     );
 
-    if (caseWhenDependencyNames.length === 0) return;
+    if (caseWhenDependencyNames.length === 0) {
+      syncLiveAttendanceFields();
+      return;
+    }
 
     applyCaseWhenDrivenFormFields(
       byCode,
       buildAttendanceFieldValuesByCode(getValues()),
       getValues,
       setValue,
+      {
+        managedByWorkInOut: workTimeAutoOnly,
+        managedLiveDate: liveWorkDateEnabled,
+      },
     );
+    syncLiveAttendanceFields();
   }, [
     useServerLayout,
     sortedEnabledRows,
@@ -645,6 +798,18 @@ export const AttendanceForm = forwardRef<
     caseWhenDependencyValues,
     getValues,
     setValue,
+    workTimeAutoOnly,
+    liveWorkDateEnabled,
+    syncLiveAttendanceFields,
+  ]);
+
+  useEffect(() => {
+    if (!liveWorkDateEnabled && workInOutOptions.length === 0) return;
+    return subscribeLiveAttendanceClockSync(syncLiveAttendanceFields);
+  }, [
+    liveWorkDateEnabled,
+    workInOutOptions.length,
+    syncLiveAttendanceFields,
   ]);
 
   return (
@@ -657,12 +822,34 @@ export const AttendanceForm = forwardRef<
     >
       <CardContent className="flex min-h-0 flex-1 flex-col p-0">
         {serverBaseUrl.trim().length > 0 && (
-          <div className="pointer-events-none fixed right-28 top-4 z-50">
+          <div className="pointer-events-none fixed right-28 top-4 z-50 flex items-center gap-1.5">
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="pointer-events-auto rounded-full border-zinc-300 bg-white text-zinc-700 shadow-sm hover:bg-zinc-100"
+              className={floatingToolbarButtonClass}
+              onClick={decreaseFontScale}
+              disabled={!canDecreaseFontScale}
+              aria-label={`글씨 크기 줄이기 (현재 ${formatAttendanceFormFontScaleLabel(fontScale)})`}
+            >
+              <Minus className="h-4 w-4" aria-hidden />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className={floatingToolbarButtonClass}
+              onClick={increaseFontScale}
+              disabled={!canIncreaseFontScale}
+              aria-label={`글씨 크기 키우기 (현재 ${formatAttendanceFormFontScaleLabel(fontScale)})`}
+            >
+              <Plus className="h-4 w-4" aria-hidden />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className={floatingToolbarButtonClass}
               onClick={handleReloadAttendanceMaster}
               disabled={masterRefetching}
               aria-label="양식 다시 불러오기"
@@ -685,17 +872,20 @@ export const AttendanceForm = forwardRef<
               handleAttendanceFormEnterKeyDown(e, attendanceFormRef.current)
             }
           >
-            <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto [-webkit-overflow-scrolling:touch]">
+            <div
+              className="min-h-0 flex-1 overflow-x-auto overflow-y-auto [-webkit-overflow-scrolling:touch]"
+              style={{ zoom: fontScale }}
+            >
               <table
                 className={cn(
-                  "w-full min-w-[20rem] table-fixed border-collapse sm:min-w-0",
+                  "w-full min-w-[26rem] table-fixed border-collapse sm:min-w-[28rem]",
                   "border border-zinc-200 text-sm [word-break:keep-all]",
                 )}
               >
                 <colgroup>
-                  <col className="w-[29%] sm:w-[27%]" />
-                  <col className="w-[31%] sm:w-[33%]" />
-                  <col className="w-[40%]" />
+                  <col className="w-[22%] sm:w-[20%]" />
+                  <col className="w-[46%] sm:w-[48%]" />
+                  <col className="w-[32%] sm:w-[32%]" />
                 </colgroup>
                 <thead>
                   <tr>
@@ -724,6 +914,9 @@ export const AttendanceForm = forwardRef<
                       serverBaseUrl={serverBaseUrl}
                       deptQuery={deptQuery}
                       departmentOptions={departmentOptions}
+                      workInOutKind={workInOutKind}
+                      workTimeAutoOnly={workTimeAutoOnly}
+                      onRegNumberKeyDown={onRegNumberKeyDown}
                     />
                   ) : useServerEmptyNotice ? (
                     <tr>
@@ -737,546 +930,631 @@ export const AttendanceForm = forwardRef<
                     </tr>
                   ) : (
                     <>
-                  <FormField
-                    control={form.control}
-                    name="companyName"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(0)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">업체명</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                className={inputClass}
-                                autoComplete="organization"
-                              />
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>JPOL</td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="fullName"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(1)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">이름</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                className={inputClass}
-                                autoComplete="name"
-                                placeholder="외국인등록증 기준"
-                              />
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>
-                          외국인등록증 기준
-                          <br />
-                          {ru("(Согласно иностранной регистрационной карте)")}
-                        </td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="regNumber"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(2)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">
-                              생년월일(외국인등록번호 13자리)
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                className={inputClass}
-                                inputMode="numeric"
-                                maxLength={13}
-                                placeholder="13자리"
-                                onChange={(e) => {
-                                  const v = e.target.value
-                                    .replace(/\D/g, "")
-                                    .slice(0, 13);
-                                  field.onChange(v);
-                                }}
-                                value={field.value}
-                              />
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>
-                          외국인등록번호 13자리
-                          <br />
-                          {ru(
-                            "(Основано на регистрационном номере иностранца, 13 цифр)",
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(3)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">휴대폰</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                type="tel"
-                                className={inputClass}
-                                autoComplete="tel"
-                                inputMode="numeric"
-                                maxLength={11}
-                                onChange={(e) => {
-                                  const v = e.target.value
-                                    .replace(/\D/g, "")
-                                    .slice(0, 11);
-                                  field.onChange(v);
-                                }}
-                                value={field.value}
-                              />
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>
-                          휴대폰번호
-                          <br />
-                          {ru("(Номер мобильного телефона)")}
-                        </td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="gender"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(4)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">성별</FormLabel>
-                            <FormControl>
-                              {staticFieldOpts05.length > 0 ? (
-                                <div
-                                  role="radiogroup"
-                                  aria-label="성별"
-                                  className="flex flex-wrap items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
-                                >
-                                  {staticFieldOpts05.map((opt, idx) => (
-                                    <label
-                                      key={opt.value}
-                                      className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
-                                    >
-                                      <input
-                                        type="radio"
-                                        name={field.name}
-                                        value={opt.value}
-                                        checked={String(field.value) === opt.value}
-                                        onChange={() => field.onChange(opt.value)}
-                                        onBlur={field.onBlur}
-                                        ref={idx === 0 ? field.ref : undefined}
-                                        className="h-4 w-4 accent-zinc-900"
-                                      />
-                                      {opt.label}
-                                    </label>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-zinc-500">
-                                  ATT_ETC_FORM 05번 항목에 옵션(c_attr2)을
-                                  설정하고 사용(Y) 처리하세요.
-                                </p>
-                              )}
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>
-                          남/여
-                          <br />
-                          {ru("(Муж/Жен)")}
-                        </td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="workDate"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(5)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">날짜</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="date"
-                                {...field}
-                                className={inputClass}
-                              />
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>
-                          ****년 **월 **일 (*요일) (* день недели)
-                        </td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="shift"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(6)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">주간/야간</FormLabel>
-                            <FormControl>
-                              {staticFieldOpts07.length > 0 ? (
-                                <div
-                                  role="radiogroup"
-                                  aria-label="주간/야간"
-                                  className="flex flex-wrap items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
-                                >
-                                  {staticFieldOpts07.map((opt, idx) => (
-                                    <label
-                                      key={opt.value}
-                                      className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
-                                    >
-                                      <input
-                                        type="radio"
-                                        name={field.name}
-                                        value={opt.value}
-                                        checked={String(field.value) === opt.value}
-                                        onChange={() => field.onChange(opt.value)}
-                                        onBlur={field.onBlur}
-                                        ref={idx === 0 ? field.ref : undefined}
-                                        className="h-4 w-4 accent-zinc-900"
-                                      />
-                                      {opt.label}
-                                    </label>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-zinc-500">
-                                  ATT_ETC_FORM 07번 항목에 옵션(c_attr2)을
-                                  설정하고 사용(Y) 처리하세요.
-                                </p>
-                              )}
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>{renderText("shiftLabel")}</td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="startTime"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(7)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">출근시간</FormLabel>
-                            <FormControl>
-                              <div className="space-y-1">
-                                {startTimeInputDisabled ? (
-                                  <p className="text-xs text-zinc-500">
-                                    퇴근시간이 입력되어 출근시간을 수정할 수
-                                    없습니다.
-                                  </p>
-                                ) : null}
-                                <Input
-                                  {...field}
-                                  type="text"
-                                  className={inputClass}
-                                  inputMode="numeric"
-                                  maxLength={5}
-                                  placeholder="HH:MM"
-                                  disabled={startTimeInputDisabled}
-                                  onChange={(e) => {
-                                    const next = formatTimeWithColon(
-                                      e.target.value,
-                                    );
-                                    if (isValidPartialTimeHm(next)) {
-                                      field.onChange(next);
-                                    }
-                                  }}
-                                  value={field.value}
-                                />
-                              </div>
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>
-                          주간 기본 8:30 / 야간 기본 20:30
-                          <br />
-                          {ru("(Основное дневное 8:30 / Ночное 20:30)")}
-                        </td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="endTime"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(8)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">퇴근시간</FormLabel>
-                            <FormControl>
-                              <div className="space-y-1">
-                                {endTimeInputDisabled ? (
-                                  <p className="text-xs text-zinc-500">
-                                    출근시간이 입력되어 퇴근시간을 수정할 수
-                                    없습니다.
-                                  </p>
-                                ) : null}
-                                <Input
-                                  type="text"
-                                  value={field.value}
-                                  onChange={(e) => {
-                                    const next = formatTimeWithColon(
-                                      e.target.value,
-                                    );
-                                    if (isValidPartialTimeHm(next)) {
-                                      field.onChange(next);
-                                    }
-                                  }}
-                                  onBlur={field.onBlur}
-                                  name={field.name}
-                                  ref={field.ref}
-                                  className={inputClass}
-                                  inputMode="numeric"
-                                  maxLength={5}
-                                  placeholder="HH:MM"
-                                  disabled={endTimeInputDisabled}
-                                />
-                              </div>
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>&nbsp;</td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="overtimeMinutes"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(9)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">잔업시간</FormLabel>
-                            <Select
-                              onValueChange={(v) => field.onChange(Number(v))}
-                              value={String(field.value)}
-                            >
-                              <FormControl>
-                                <SelectTrigger className={selectTriggerClass}>
-                                  <SelectValue />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent className={selectContentClass}>
-                                {OVERTIME_MINUTE_OPTIONS.map((m) => (
-                                  <SelectItem key={m} value={String(m)}>
-                                    {formatOvertimeLabel(m)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>
-                          30분 단위
-                          <br />
-                          {ru("(По 30 минут)")}
-                        </td>
-                      </tr>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="dinner"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdL}>
-                          {getFirstColumnLabel(10)}
-                        </td>
-                        <td className={tdM}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">석식여부</FormLabel>
-                            <FormControl>
-                              <div
-                                role="radiogroup"
-                                aria-label="석식여부"
-                                className="flex items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
-                              >
-                                <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
-                                  <input
-                                    type="radio"
-                                    name={field.name}
-                                    value="Y"
-                                    checked={field.value === "Y"}
-                                    onChange={field.onChange}
-                                    onBlur={field.onBlur}
+                      <FormField
+                        control={form.control}
+                        name="regNumber"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(0)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  생년월일(외국인등록번호 13자리)
+                                </FormLabel>
+                                <FormControl>
+                                  <RegNumberMaskedInput
                                     ref={field.ref}
-                                    className="h-4 w-4 accent-zinc-900"
-                                  />
-                                  Y
-                                </label>
-                                <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
-                                  <input
-                                    type="radio"
                                     name={field.name}
-                                    value="N"
-                                    checked={field.value === "N"}
-                                    onChange={field.onChange}
+                                    value={String(field.value ?? "")}
                                     onBlur={field.onBlur}
-                                    className="h-4 w-4 accent-zinc-900"
+                                    onChange={field.onChange}
+                                    className={inputClass}
+                                    onKeyDown={(e) =>
+                                      onRegNumberKeyDown(
+                                        e,
+                                        String(field.value ?? ""),
+                                      )
+                                    }
                                   />
-                                  N
-                                </label>
-                              </div>
-                            </FormControl>
-                            <FormMessage className="text-xs sm:text-sm" />
-                          </FormItem>
-                        </td>
-                        <td className={tdR}>Y/N</td>
-                      </tr>
-                    )}
-                  />
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              외국인등록번호 13자리
+                              <br />
+                              {ru(
+                                "(Основано на регистрационном номере иностранца, 13 цифр)",
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      />
 
-                  <FormField
-                    control={form.control}
-                    name="department"
-                    render={({ field }) => (
-                      <tr>
-                        <td className={tdLLast}>
-                          {getFirstColumnLabel(11)}
-                        </td>
-                        <td className={tdMLast}>
-                          <FormItem className="space-y-0.5">
-                            <FormLabel className="sr-only">근무부서</FormLabel>
-                            <FormControl>
-                              {!serverBaseUrl.trim() ? (
-                                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                                  설정에서 서버 Base URL(Mobile까지)을
-                                  등록해주세요.
-                                </p>
-                              ) : deptQuery.isPending ? (
-                                <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
-                                  근무부서 목록 불러오는 중…
-                                </p>
-                              ) : deptQuery.isError ? (
-                                <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                                  {deptQuery.error instanceof Error
-                                    ? deptQuery.error.message
-                                    : "목록을 불러오지 못했습니다."}
-                                </p>
-                              ) : departmentOptions.length === 0 ? (
-                                <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
-                                  등록된 근무부서 코드가 없습니다.
-                                </p>
-                              ) : (
-                                <div
-                                  role="radiogroup"
-                                  aria-label="근무부서"
-                                  className="flex flex-wrap items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
-                                >
-                                  {departmentOptions.map((opt, idx) => (
-                                    <label
-                                      key={opt.c_code}
-                                      className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
+                      <FormField
+                        control={form.control}
+                        name="companyName"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(1)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  업체명
+                                </FormLabel>
+                                <FormControl data-attendance-focus="companyName">
+                                  <Input
+                                    {...field}
+                                    className={inputClass}
+                                    autoComplete="organization"
+                                  />
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>JPOL</td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="fullName"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(2)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">이름</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    className={inputClass}
+                                    autoComplete="name"
+                                    placeholder="외국인등록증 기준"
+                                  />
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              외국인등록증 기준
+                              <br />
+                              {ru(
+                                "(Согласно иностранной регистрационной карте)",
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(3)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  휴대폰
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type="tel"
+                                    className={inputClass}
+                                    autoComplete="tel"
+                                    inputMode="numeric"
+                                    maxLength={11}
+                                    onChange={(e) => {
+                                      const v = e.target.value
+                                        .replace(/\D/g, "")
+                                        .slice(0, 11);
+                                      field.onChange(v);
+                                    }}
+                                    value={field.value}
+                                  />
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              휴대폰번호
+                              <br />
+                              {ru("(Номер мобильного телефона)")}
+                            </td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="gender"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(4)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">성별</FormLabel>
+                                <FormControl>
+                                  {staticFieldOpts05.length > 0 ? (
+                                    <div
+                                      role="radiogroup"
+                                      aria-label="성별"
+                                      className={radioGroupClass(
+                                        staticFieldOpts05.length,
+                                      )}
                                     >
+                                      {staticFieldOpts05.map((opt, idx) => (
+                                        <label
+                                          key={opt.value}
+                                          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
+                                        >
+                                          <input
+                                            type="radio"
+                                            name={field.name}
+                                            value={opt.value}
+                                            checked={
+                                              String(field.value) === opt.value
+                                            }
+                                            onChange={() =>
+                                              field.onChange(opt.value)
+                                            }
+                                            onBlur={field.onBlur}
+                                            ref={
+                                              idx === 0 ? field.ref : undefined
+                                            }
+                                            className="h-4 w-4 accent-zinc-900"
+                                          />
+                                          {opt.label}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-zinc-500">
+                                      ATT_ETC_FORM 05번 항목에 옵션(c_attr2)을
+                                      설정하고 사용(Y) 처리하세요.
+                                    </p>
+                                  )}
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              남/여
+                              <br />
+                              {ru("(Муж/Жен)")}
+                            </td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="workDate"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(5)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">날짜</FormLabel>
+                                <FormControl>
+                                  <WorkDateDisplay
+                                    value={String(field.value ?? "")}
+                                    className={inputClass}
+                                  />
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              ****년 **월 **일 (*요일) (* день недели)
+                            </td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="shift"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(6)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  주간/야간
+                                </FormLabel>
+                                <FormControl data-attendance-focus="shift">
+                                  {staticFieldOpts07.length > 0 ? (
+                                    <div
+                                      role="radiogroup"
+                                      aria-label="주간/야간"
+                                      className={radioGroupClass(
+                                        staticFieldOpts07.length,
+                                      )}
+                                    >
+                                      {staticFieldOpts07.map((opt, idx) => (
+                                        <label
+                                          key={opt.value}
+                                          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
+                                        >
+                                          <input
+                                            type="radio"
+                                            name={field.name}
+                                            value={opt.value}
+                                            checked={
+                                              String(field.value) === opt.value
+                                            }
+                                            onChange={() =>
+                                              field.onChange(opt.value)
+                                            }
+                                            onBlur={field.onBlur}
+                                            ref={
+                                              idx === 0 ? field.ref : undefined
+                                            }
+                                            className="h-4 w-4 accent-zinc-900"
+                                          />
+                                          {opt.label}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-zinc-500">
+                                      ATT_ETC_FORM 07번 항목에 옵션(c_attr2)을
+                                      설정하고 사용(Y) 처리하세요.
+                                    </p>
+                                  )}
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>{renderText("shiftLabel")}</td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="workInOut"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(7)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  출근/퇴근
+                                </FormLabel>
+                                <FormControl>
+                                  {staticFieldOpts08.length > 0 ? (
+                                    <div
+                                      role="radiogroup"
+                                      aria-label="출근/퇴근"
+                                      className={radioGroupClass(
+                                        staticFieldOpts08.length,
+                                      )}
+                                    >
+                                      {staticFieldOpts08.map((opt, idx) => (
+                                        <label
+                                          key={opt.value}
+                                          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
+                                        >
+                                          <input
+                                            type="radio"
+                                            name={field.name}
+                                            value={opt.value}
+                                            checked={
+                                              String(field.value) === opt.value
+                                            }
+                                            onChange={() =>
+                                              field.onChange(opt.value)
+                                            }
+                                            onBlur={field.onBlur}
+                                            ref={
+                                              idx === 0 ? field.ref : undefined
+                                            }
+                                            className="h-4 w-4 accent-zinc-900"
+                                          />
+                                          {opt.label}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-zinc-500">
+                                      ATT_ETC_FORM 08번 항목에 옵션(c_attr2)을
+                                      설정하고 사용(Y) 처리하세요.
+                                    </p>
+                                  )}
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              {renderText("workInOutLabel")}
+                            </td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="startTime"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(8)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  출근시간
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type="text"
+                                    className={
+                                      startTimeInputDisabled
+                                        ? lockedFieldInputClass(inputClass)
+                                        : inputClass
+                                    }
+                                    inputMode="numeric"
+                                    maxLength={5}
+                                    placeholder=""
+                                    readOnly={startTimeInputDisabled}
+                                    aria-readonly={startTimeInputDisabled}
+                                    value={formatTimeWithColon(
+                                      sanitizeWorkTimeValue(
+                                        String(field.value ?? ""),
+                                      ),
+                                    )}
+                                    onChange={(e) => {
+                                      const next = formatTimeWithColon(
+                                        e.target.value,
+                                      );
+                                      if (isValidPartialTimeHm(next)) {
+                                        field.onChange(next);
+                                      }
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              주간 기본 8:30 / 야간 기본 20:30
+                              <br />
+                              {ru("(Основное дневное 8:30 / Ночное 20:30)")}
+                            </td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="endTime"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(9)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  퇴근시간
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="text"
+                                    placeholder=""
+                                    value={formatTimeWithColon(
+                                      sanitizeWorkTimeValue(
+                                        String(field.value ?? ""),
+                                      ),
+                                    )}
+                                    onChange={(e) => {
+                                      const next = formatTimeWithColon(
+                                        e.target.value,
+                                      );
+                                      if (isValidPartialTimeHm(next)) {
+                                        field.onChange(next);
+                                      }
+                                    }}
+                                    onBlur={field.onBlur}
+                                    name={field.name}
+                                    ref={field.ref}
+                                    className={
+                                      endTimeInputDisabled
+                                        ? lockedFieldInputClass(inputClass)
+                                        : inputClass
+                                    }
+                                    inputMode="numeric"
+                                    maxLength={5}
+                                    readOnly={endTimeInputDisabled}
+                                    aria-readonly={endTimeInputDisabled}
+                                  />
+                                </FormControl>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>&nbsp;</td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="overtimeMinutes"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(10)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  잔업시간
+                                </FormLabel>
+                                <Select
+                                  onValueChange={(v) =>
+                                    field.onChange(Number(v))
+                                  }
+                                  value={resolveOvertimeSelectValue(
+                                    field.value,
+                                  )}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger
+                                      className={selectTriggerClass}
+                                    >
+                                      <SelectValue placeholder="선택" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent className={selectContentClass}>
+                                    {OVERTIME_MINUTE_OPTIONS.map((m) => (
+                                      <SelectItem key={m} value={String(m)}>
+                                        {formatOvertimeLabel(m)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage className="text-xs sm:text-sm" />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>
+                              30분 단위
+                              <br />
+                              {ru("(По 30 минут)")}
+                            </td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="dinner"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdL}>{getFirstColumnLabel(11)}</td>
+                            <td className={tdM}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  석식여부
+                                </FormLabel>
+                                <FormControl>
+                                  <div
+                                    role="radiogroup"
+                                    aria-label="석식여부"
+                                    className="flex items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
+                                  >
+                                    <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
                                       <input
                                         type="radio"
                                         name={field.name}
-                                        value={opt.c_code}
-                                        checked={field.value === opt.c_code}
+                                        value="Y"
+                                        checked={field.value === "Y"}
                                         onChange={field.onChange}
                                         onBlur={field.onBlur}
-                                        ref={idx === 0 ? field.ref : undefined}
+                                        ref={field.ref}
                                         className="h-4 w-4 accent-zinc-900"
                                       />
-                                      {opt.c_name}
+                                      Y
                                     </label>
-                                  ))}
-                                </div>
-                              )}
-                            </FormControl>
-                            {!deptQuery.isPending &&
-                              departmentOptions.length > 0 && (
+                                    <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
+                                      <input
+                                        type="radio"
+                                        name={field.name}
+                                        value="N"
+                                        checked={field.value === "N"}
+                                        onChange={field.onChange}
+                                        onBlur={field.onBlur}
+                                        className="h-4 w-4 accent-zinc-900"
+                                      />
+                                      N
+                                    </label>
+                                  </div>
+                                </FormControl>
                                 <FormMessage className="text-xs sm:text-sm" />
-                              )}
-                          </FormItem>
-                        </td>
-                        <td className={tdRLast}>
-                          생산/물류/기타
-                          <br />
-                          {ru("(Производство/Логистика/Другое)")}
-                        </td>
-                      </tr>
-                    )}
-                  />
+                              </FormItem>
+                            </td>
+                            <td className={tdR}>Y/N</td>
+                          </tr>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="department"
+                        render={({ field }) => (
+                          <tr>
+                            <td className={tdLLast}>
+                              {getFirstColumnLabel(12)}
+                            </td>
+                            <td className={tdMLast}>
+                              <FormItem className="space-y-0.5">
+                                <FormLabel className="sr-only">
+                                  근무부서
+                                </FormLabel>
+                                <FormControl>
+                                  {!serverBaseUrl.trim() ? (
+                                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                      설정에서 서버 Base URL(Mobile까지)을
+                                      등록해주세요.
+                                    </p>
+                                  ) : deptQuery.isPending ? (
+                                    <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+                                      근무부서 목록 불러오는 중…
+                                    </p>
+                                  ) : deptQuery.isError ? (
+                                    <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                                      {deptQuery.error instanceof Error
+                                        ? deptQuery.error.message
+                                        : "목록을 불러오지 못했습니다."}
+                                    </p>
+                                  ) : departmentOptions.length === 0 ? (
+                                    <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+                                      등록된 근무부서 코드가 없습니다.
+                                    </p>
+                                  ) : (
+                                    <div
+                                      role="radiogroup"
+                                      aria-label="근무부서"
+                                      className={radioGroupClass(
+                                        departmentOptions.length,
+                                      )}
+                                    >
+                                      {departmentOptions.map((opt, idx) => (
+                                        <label
+                                          key={opt.c_code}
+                                          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
+                                        >
+                                          <input
+                                            type="radio"
+                                            name={field.name}
+                                            value={opt.c_code}
+                                            checked={field.value === opt.c_code}
+                                            onChange={field.onChange}
+                                            onBlur={field.onBlur}
+                                            ref={
+                                              idx === 0 ? field.ref : undefined
+                                            }
+                                            className="h-4 w-4 accent-zinc-900"
+                                          />
+                                          {opt.c_name}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  )}
+                                </FormControl>
+                                {!deptQuery.isPending &&
+                                  departmentOptions.length > 0 && (
+                                    <FormMessage className="text-xs sm:text-sm" />
+                                  )}
+                              </FormItem>
+                            </td>
+                            <td className={tdRLast}>
+                              생산/물류/기타
+                              <br />
+                              {ru("(Производство/Логистика/Другое)")}
+                            </td>
+                          </tr>
+                        )}
+                      />
                     </>
                   )}
                 </tbody>

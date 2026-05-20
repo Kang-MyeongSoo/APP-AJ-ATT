@@ -1,12 +1,21 @@
 import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
 import type { EtcFormMstRow } from "@/features/attendance/lib/attendance-etc-form-mst-api";
+import {
+  ATTENDANCE_FIELD_CODE_TO_FORM_KEY,
+  ATTENDANCE_FIELD_CODES_ORDERED,
+  normalizeAttendanceFieldCode,
+  normalizeCaseWhenFieldCode,
+} from "@/features/attendance/lib/attendance-field-codes";
 import type { DepartmentWorkOption } from "@/features/attendance/lib/attendance-mst-code";
 import { format } from "date-fns";
 import {
   coerceInitialTimeDisplay,
   coerceInitialWorkDate,
+  formatCurrentWorkDate,
+  isWorkTimeFormatHint,
   normalizeEtcInputKind,
   parseEtcAttr2Options,
+  sanitizeWorkTimeValue,
   type EtcInputKind,
 } from "@/features/attendance/lib/etc-form-input-kind";
 
@@ -21,10 +30,11 @@ export function createDefaultAttendanceFormValues(
     gender: "",
     workDate: format(today, "yyyy-MM-dd"),
     shift: "",
+    workInOut: "",
     startTime: "",
     endTime: "",
     overtimeMinutes: 0,
-    dinner: "N",
+    dinner: "",
     department: "",
   };
 }
@@ -50,11 +60,7 @@ const CASE_WHEN_WHEN_RE =
 
 const CASE_WHEN_ELSE_RE = /else\s+['"]([^'"]*)['"]\s+end\s*$/i;
 
-function normalizeFieldCode(code: string): string {
-  const n = Number.parseInt(code.trim(), 10);
-  if (!Number.isFinite(n) || n < 1 || n > 12) return code.trim();
-  return String(n).padStart(2, "0");
-}
+const normalizeFieldCode = normalizeCaseWhenFieldCode;
 
 export function isCompactCaseWhenInitialValue(c_attr3: string): boolean {
   return c_attr3.trim().startsWith("@");
@@ -165,18 +171,19 @@ export function buildAttendanceFieldValuesByCode(
   values: AttendanceFormValues,
 ): Record<string, string> {
   return {
-    "01": values.companyName,
-    "02": values.fullName,
-    "03": values.regNumber,
+    "01": values.regNumber,
+    "02": values.companyName,
+    "03": values.fullName,
     "04": values.phone,
     "05": values.gender,
     "06": values.workDate,
     "07": values.shift,
-    "08": values.startTime,
-    "09": values.endTime,
-    "10": String(values.overtimeMinutes),
-    "11": values.dinner,
-    "12": values.department,
+    "08": values.workInOut,
+    "09": values.startTime,
+    "10": values.endTime,
+    "11": String(values.overtimeMinutes),
+    "12": values.dinner,
+    "13": values.department,
   };
 }
 
@@ -200,13 +207,18 @@ export function resolveEtcAttr3Initial(
     const resolved = evaluateCaseWhenInitialValue(caseExpr, context);
     const kind = options?.inputKind ?? "text";
     if (kind === "date") return coerceInitialWorkDate(resolved);
-    if (kind === "time") return coerceInitialTimeDisplay(resolved);
+    if (kind === "time" || isWorkTimeFormatHint(resolved)) {
+      const coerced = coerceInitialTimeDisplay(resolved);
+      return sanitizeWorkTimeValue(coerced);
+    }
     return resolved;
   }
 
   const kind = options?.inputKind ?? "text";
   if (kind === "date") return coerceInitialWorkDate(raw);
-  if (kind === "time") return coerceInitialTimeDisplay(raw);
+  if (kind === "time" || isWorkTimeFormatHint(raw)) {
+    return sanitizeWorkTimeValue(coerceInitialTimeDisplay(raw));
+  }
   return raw;
 }
 
@@ -216,23 +228,7 @@ export function getCaseWhenDependencyCodes(c_attr3: string): string[] {
   return [...new Set(expr.whens.map((w) => w.fieldCode))];
 }
 
-export const ATTENDANCE_FIELD_CODE_TO_FORM_KEY: Record<
-  string,
-  keyof AttendanceFormValues
-> = {
-  "01": "companyName",
-  "02": "fullName",
-  "03": "regNumber",
-  "04": "phone",
-  "05": "gender",
-  "06": "workDate",
-  "07": "shift",
-  "08": "startTime",
-  "09": "endTime",
-  "10": "overtimeMinutes",
-  "11": "dinner",
-  "12": "department",
-};
+export { ATTENDANCE_FIELD_CODE_TO_FORM_KEY } from "@/features/attendance/lib/attendance-field-codes";
 
 /** CASE WHEN 조건이 참조하는 폼 필드만 (대상 필드 자체는 제외) */
 export function collectCaseWhenDependencyFormNames(
@@ -275,10 +271,20 @@ export function applyCaseWhenDrivenFormFields(
     value: AttendanceFormValues[keyof AttendanceFormValues],
     options?: { shouldValidate?: boolean },
   ) => void,
+  options?: { managedByWorkInOut?: boolean; managedLiveDate?: boolean },
 ) {
   for (const [code, row] of rowsByCode) {
     const init = row.c_attr3?.trim() ?? "";
     if (!isCaseWhenInitialValue(init)) continue;
+    if (options?.managedLiveDate && code === "06") {
+      continue;
+    }
+    if (
+      options?.managedByWorkInOut &&
+      (code === "08" || code === "09" || code === "10")
+    ) {
+      continue;
+    }
 
     const kind = normalizeEtcInputKind(row.c_attr1);
     const resolved = resolveEtcAttr3Initial(init, fieldValuesByCode, {
@@ -288,18 +294,18 @@ export function applyCaseWhenDrivenFormFields(
 
     switch (code) {
       case "01":
-        setFormValueIfChanged(getValues, setValue, "companyName", resolved);
-        break;
-      case "02":
-        setFormValueIfChanged(getValues, setValue, "fullName", resolved);
-        break;
-      case "03":
         setFormValueIfChanged(
           getValues,
           setValue,
           "regNumber",
           resolved.replace(/\D/g, "").slice(0, 13),
         );
+        break;
+      case "02":
+        setFormValueIfChanged(getValues, setValue, "companyName", resolved);
+        break;
+      case "03":
+        setFormValueIfChanged(getValues, setValue, "fullName", resolved);
         break;
       case "04":
         setFormValueIfChanged(
@@ -319,19 +325,32 @@ export function applyCaseWhenDrivenFormFields(
         setFormValueIfChanged(getValues, setValue, "shift", resolved);
         break;
       case "08":
-        setFormValueIfChanged(getValues, setValue, "startTime", resolved);
+        setFormValueIfChanged(getValues, setValue, "workInOut", resolved);
         break;
       case "09":
-        setFormValueIfChanged(getValues, setValue, "endTime", resolved);
+        setFormValueIfChanged(
+          getValues,
+          setValue,
+          "startTime",
+          sanitizeWorkTimeValue(resolved),
+        );
         break;
-      case "10": {
+      case "10":
+        setFormValueIfChanged(
+          getValues,
+          setValue,
+          "endTime",
+          sanitizeWorkTimeValue(resolved),
+        );
+        break;
+      case "11": {
         const n = Number.parseInt(resolved, 10);
         if (Number.isFinite(n)) {
           setFormValueIfChanged(getValues, setValue, "overtimeMinutes", n);
         }
         break;
       }
-      case "11":
+      case "12":
         setFormValueIfChanged(
           getValues,
           setValue,
@@ -339,7 +358,7 @@ export function applyCaseWhenDrivenFormFields(
           resolved.toUpperCase() === "Y" ? "Y" : "N",
         );
         break;
-      case "12":
+      case "13":
         setFormValueIfChanged(getValues, setValue, "department", resolved);
         break;
       default:
@@ -355,14 +374,14 @@ function assignCaseWhenResolvedValue(
 ): AttendanceFormValues {
   switch (code) {
     case "01":
-      return { ...values, companyName: resolved };
-    case "02":
-      return { ...values, fullName: resolved };
-    case "03":
       return {
         ...values,
         regNumber: resolved.replace(/\D/g, "").slice(0, 13),
       };
+    case "02":
+      return { ...values, companyName: resolved };
+    case "03":
+      return { ...values, fullName: resolved };
     case "04":
       return { ...values, phone: resolved.replace(/\D/g, "").slice(0, 11) };
     case "05":
@@ -372,19 +391,21 @@ function assignCaseWhenResolvedValue(
     case "07":
       return { ...values, shift: resolved };
     case "08":
-      return { ...values, startTime: resolved };
+      return { ...values, workInOut: resolved };
     case "09":
-      return { ...values, endTime: resolved };
-    case "10": {
+      return { ...values, startTime: sanitizeWorkTimeValue(resolved) };
+    case "10":
+      return { ...values, endTime: sanitizeWorkTimeValue(resolved) };
+    case "11": {
       const n = Number.parseInt(resolved, 10);
       return Number.isFinite(n) ? { ...values, overtimeMinutes: n } : values;
     }
-    case "11":
+    case "12":
       return {
         ...values,
         dinner: resolved.toUpperCase() === "Y" ? "Y" : "N",
       };
-    case "12":
+    case "13":
       return { ...values, department: resolved };
     default:
       return values;
@@ -418,23 +439,26 @@ export function applyCaseWhenDrivenValues(
   return next;
 }
 
-function normalizeAttendanceFieldCode(c_code: string): string | null {
-  const t = c_code.trim();
-  if (!t || t.toLowerCase() === "title") return null;
-  const n = Number.parseInt(t, 10);
-  if (!Number.isFinite(n) || n < 1 || n > 12) return null;
-  return String(n).padStart(2, "0");
-}
-
-function pickEtcComboInitialValue(row: EtcFormMstRow): string | undefined {
+/** `c_attr3`에 명시된 값만 콤보 초기값으로 사용 (없으면 비움) */
+export function resolveEtcComboInitialValue(
+  row: EtcFormMstRow,
+): string | undefined {
   const opts = parseEtcAttr2Options(row.c_attr2);
   if (opts.length === 0) return undefined;
   const raw = row.c_attr3?.trim() ?? "";
-  if (!raw || isCaseWhenInitialValue(raw)) return opts[0]?.value;
+  if (!raw || isCaseWhenInitialValue(raw)) return undefined;
+
   const exact = opts.find((o) => o.value === raw);
   if (exact) return exact.value;
+
   const ci = opts.find((o) => o.value.toLowerCase() === raw.toLowerCase());
-  return ci?.value ?? opts[0]?.value;
+  if (ci) return ci.value;
+
+  const byLabel = opts.find(
+    (o) =>
+      o.label === raw || o.label.toLowerCase() === raw.toLowerCase(),
+  );
+  return byLabel?.value;
 }
 
 /**
@@ -457,22 +481,7 @@ export function buildAttendanceFormResetValues(
   const visible = new Set(byCode.keys());
   const fieldValuesByCode = buildAttendanceFieldValuesByCode(values);
 
-  const ordered = [
-    "01",
-    "02",
-    "03",
-    "04",
-    "05",
-    "06",
-    "07",
-    "08",
-    "09",
-    "10",
-    "11",
-    "12",
-  ] as const;
-
-  for (const code of ordered) {
+  for (const code of ATTENDANCE_FIELD_CODES_ORDERED) {
     const row = byCode.get(code);
     if (!row) continue;
     const init = row.c_attr3?.trim() ?? "";
@@ -481,21 +490,29 @@ export function buildAttendanceFormResetValues(
     switch (code) {
       case "01":
         if (init && !isCaseWhenInitialValue(init)) {
-          values = { ...values, companyName: init };
-          fieldValuesByCode["01"] = init;
+          const v = init.replace(/\D/g, "").slice(0, 13);
+          values = { ...values, regNumber: v };
+          fieldValuesByCode["01"] = v;
         }
         break;
-      case "02":
-        if (init && !isCaseWhenInitialValue(init)) {
-          values = { ...values, fullName: init };
+      case "02": {
+        const opts = parseEtcAttr2Options(row.c_attr2);
+        if (kind === "combo" && opts.length > 0) {
+          const v = resolveEtcComboInitialValue(row);
+          if (v) {
+            values = { ...values, companyName: v };
+            fieldValuesByCode["02"] = v;
+          }
+        } else if (init && !isCaseWhenInitialValue(init)) {
+          values = { ...values, companyName: init };
           fieldValuesByCode["02"] = init;
         }
         break;
+      }
       case "03":
         if (init && !isCaseWhenInitialValue(init)) {
-          const v = init.replace(/\D/g, "").slice(0, 13);
-          values = { ...values, regNumber: v };
-          fieldValuesByCode["03"] = v;
+          values = { ...values, fullName: init };
+          fieldValuesByCode["03"] = init;
         }
         break;
       case "04":
@@ -508,7 +525,7 @@ export function buildAttendanceFormResetValues(
       case "05": {
         const opts = parseEtcAttr2Options(row.c_attr2);
         if (opts.length > 0) {
-          const v = pickEtcComboInitialValue(row);
+          const v = resolveEtcComboInitialValue(row);
           if (v) {
             values = { ...values, gender: v };
             fieldValuesByCode["05"] = v;
@@ -519,19 +536,16 @@ export function buildAttendanceFormResetValues(
         }
         break;
       }
-      case "06":
-        if (init) {
-          const v = resolveEtcAttr3Initial(init, fieldValuesByCode, {
-            inputKind: kind,
-          });
-          values = { ...values, workDate: v };
-          fieldValuesByCode["06"] = v;
-        }
+      case "06": {
+        const today = formatCurrentWorkDate();
+        values = { ...values, workDate: today };
+        fieldValuesByCode["06"] = today;
         break;
+      }
       case "07": {
         const opts = parseEtcAttr2Options(row.c_attr2);
         if (opts.length > 0) {
-          const v = pickEtcComboInitialValue(row);
+          const v = resolveEtcComboInitialValue(row);
           if (v) {
             values = { ...values, shift: v };
             fieldValuesByCode["07"] = v;
@@ -543,30 +557,48 @@ export function buildAttendanceFormResetValues(
         break;
       }
       case "08": {
-        if (init) {
-          const v = resolveEtcAttr3Initial(init, fieldValuesByCode, {
-            inputKind: kind,
-            excludeFieldCode: "08",
-          });
-          values = { ...values, startTime: v };
-          fieldValuesByCode["08"] = v;
+        const opts = parseEtcAttr2Options(row.c_attr2);
+        if (opts.length > 0) {
+          const v = resolveEtcComboInitialValue(row);
+          if (v) {
+            values = { ...values, workInOut: v };
+            fieldValuesByCode["08"] = v;
+          }
+        } else if (init && !isCaseWhenInitialValue(init)) {
+          values = { ...values, workInOut: init };
+          fieldValuesByCode["08"] = init;
         }
         break;
       }
       case "09": {
         if (init) {
-          const v = resolveEtcAttr3Initial(init, fieldValuesByCode, {
-            inputKind: kind,
-            excludeFieldCode: "09",
-          });
-          values = { ...values, endTime: v };
+          const v = sanitizeWorkTimeValue(
+            resolveEtcAttr3Initial(init, fieldValuesByCode, {
+              inputKind: kind,
+              excludeFieldCode: "09",
+            }),
+          );
+          values = { ...values, startTime: v };
           fieldValuesByCode["09"] = v;
         }
         break;
       }
-      case "10":
+      case "10": {
+        if (init) {
+          const v = sanitizeWorkTimeValue(
+            resolveEtcAttr3Initial(init, fieldValuesByCode, {
+              inputKind: kind,
+              excludeFieldCode: "10",
+            }),
+          );
+          values = { ...values, endTime: v };
+          fieldValuesByCode["10"] = v;
+        }
+        break;
+      }
+      case "11":
         if (kind === "combo") {
-          const v = pickEtcComboInitialValue(row);
+          const v = resolveEtcComboInitialValue(row);
           if (v) {
             const n = Number.parseInt(v, 10);
             if (Number.isFinite(n)) {
@@ -580,9 +612,9 @@ export function buildAttendanceFormResetValues(
           }
         }
         break;
-      case "11":
+      case "12":
         if (kind === "combo") {
-          const v = pickEtcComboInitialValue(row);
+          const v = resolveEtcComboInitialValue(row);
           if (v === "Y" || v === "N") {
             values = { ...values, dinner: v };
           }
@@ -593,9 +625,9 @@ export function buildAttendanceFormResetValues(
           };
         }
         break;
-      case "12":
+      case "13":
         if (kind === "combo") {
-          const v = pickEtcComboInitialValue(row);
+          const v = resolveEtcComboInitialValue(row);
           if (v) values = { ...values, department: v };
         } else if (init) {
           values = { ...values, department: init };
@@ -609,13 +641,13 @@ export function buildAttendanceFormResetValues(
   values = applyCaseWhenDrivenValues(values, byCode);
 
   if (!visible.has("01")) {
-    values = { ...values, companyName: "-" };
+    values = { ...values, regNumber: "0000000000000" };
   }
   if (!visible.has("02")) {
-    values = { ...values, fullName: "-" };
+    values = { ...values, companyName: "-" };
   }
   if (!visible.has("03")) {
-    values = { ...values, regNumber: "0000000000000" };
+    values = { ...values, fullName: "-" };
   }
   if (!visible.has("04")) {
     values = { ...values, phone: "01000000000" };
@@ -626,19 +658,19 @@ export function buildAttendanceFormResetValues(
   if (!visible.has("07") && !values.shift.trim()) {
     values = { ...values, shift: "D" };
   }
-  if (!visible.has("10")) {
+  if (!visible.has("11")) {
     values = { ...values, overtimeMinutes: 0 };
   }
-  if (!visible.has("11")) {
+  if (!visible.has("12")) {
     values = { ...values, dinner: "N" };
   }
-  if (!visible.has("12") && departmentOptions[0]?.c_code) {
+  if (!visible.has("13") && departmentOptions[0]?.c_code) {
     values = { ...values, department: departmentOptions[0].c_code };
   }
-  if (!visible.has("08")) {
+  if (!visible.has("09")) {
     values = { ...values, startTime: "" };
   }
-  if (!visible.has("09")) {
+  if (!visible.has("10")) {
     values = { ...values, endTime: "" };
   }
 

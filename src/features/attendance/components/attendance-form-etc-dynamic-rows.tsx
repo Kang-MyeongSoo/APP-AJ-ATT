@@ -16,20 +16,29 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { EtcFormMstRow } from "@/features/attendance/lib/attendance-etc-form-mst-api";
+import { normalizeAttendanceFieldCode } from "@/features/attendance/lib/attendance-field-codes";
 import {
   OVERTIME_MINUTE_OPTIONS,
+  resolveOvertimeSelectValue,
   type AttendanceFormValues,
 } from "@/features/attendance/lib/attendance-form-schema";
 import { useEtcAttr2Options } from "@/features/attendance/hooks/use-etc-attr2-options";
+import { cn } from "@/lib/utils";
+import { lockedFieldInputClass } from "@/features/attendance/lib/attendance-locked-field-input";
 import { getCaseWhenInitialValueIssue } from "@/features/attendance/lib/attendance-initial-value";
+import { RegNumberMaskedInput } from "@/features/attendance/components/reg-number-masked-input";
+import { WorkDateDisplay } from "@/features/attendance/components/work-date-display";
 import {
-  hasWorkTimeInput,
+  isPeerWorkTimeInputDisabled,
+  isWorkTimeFormatHint,
   normalizeEtcInputKind,
+  sanitizeWorkTimeValue,
+  type WorkInOutKind,
 } from "@/features/attendance/lib/etc-form-input-kind";
 import type { DepartmentWorkOption } from "@/features/attendance/lib/attendance-mst-code";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { KeyboardEventHandler, ReactNode } from "react";
 import { Fragment, useEffect, useMemo } from "react";
 import type {
   Control,
@@ -47,24 +56,16 @@ const selectTriggerClass =
   "h-10 min-h-10 border-zinc-300 bg-white text-sm text-zinc-900";
 
 const tdL =
-  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-top whitespace-pre-wrap text-sm text-zinc-800";
+  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-middle whitespace-pre-wrap text-sm text-zinc-800";
 const tdM =
-  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-top min-w-0";
+  "border-b border-r border-zinc-200 bg-white px-2 py-2 align-top min-w-[13rem]";
 const tdR =
-  "border-b border-zinc-200 bg-white px-2 py-2 align-top text-xs leading-snug text-zinc-600 sm:text-sm";
+  "border-b border-zinc-200 bg-white px-2 py-2 align-middle text-xs leading-snug text-zinc-600 sm:text-sm";
 const tdLLast = `${tdL} border-b-0`;
 const tdMLast = `${tdM} border-b-0`;
 const tdRLast = `${tdR} border-b-0`;
 
 const ru = (t: ReactNode) => <>{t}</>;
-
-function normalizeAttendanceFieldCode(c_code: string): string | null {
-  const t = c_code.trim();
-  if (!t || t.toLowerCase() === "title") return null;
-  const n = Number.parseInt(t, 10);
-  if (!Number.isFinite(n) || n < 1 || n > 12) return null;
-  return String(n).padStart(2, "0");
-}
 
 function noteFromRow(row: EtcFormMstRow, fallback: ReactNode): ReactNode {
   return row.c_attr4.trim() ? (
@@ -91,6 +92,23 @@ function formatTimeWithColon(value: string): string {
     return digits;
   }
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+function resolveComboSelectValue(
+  current: string,
+  opts: ReadonlyArray<{ value: string }>,
+): string | undefined {
+  const trimmed = current.trim();
+  if (!trimmed) return undefined;
+  if (opts.some((o) => o.value === trimmed)) return trimmed;
+  return undefined;
+}
+
+function radioGroupClass(optionCount: number): string {
+  return cn(
+    "flex items-center rounded-md border border-zinc-300 bg-white px-3 py-2",
+    optionCount <= 3 ? "flex-nowrap gap-4" : "flex-wrap gap-6",
+  );
 }
 
 function isValidPartialTimeHm(value: string): boolean {
@@ -125,15 +143,50 @@ function EtcFieldMiddle({
     departmentOptions: DepartmentWorkOption[];
     peerStartTime: string;
     peerEndTime: string;
+    workInOutKind: WorkInOutKind | null;
+    workTimeAutoOnly: boolean;
+    onRegNumberKeyDown?: (
+      event: Parameters<KeyboardEventHandler<HTMLElement>>[0],
+      regNumber: string,
+    ) => void;
   };
 }) {
   const kind = normalizeEtcInputKind(row.c_attr1);
+  const handleRegNumberKeyDown: KeyboardEventHandler<HTMLElement> | undefined =
+    code === "01" && extras.onRegNumberKeyDown
+      ? (event) =>
+          extras.onRegNumberKeyDown?.(event, String(field.value ?? ""))
+      : undefined;
+
+  const regNumberInput = () => (
+    <RegNumberMaskedInput
+      ref={field.ref}
+      name={field.name}
+      value={String(field.value ?? "")}
+      onBlur={field.onBlur}
+      onChange={field.onChange}
+      className={inputClass}
+      onKeyDown={handleRegNumberKeyDown}
+    />
+  );
   const caseWhenIssue = getCaseWhenInitialValueIssue(row.c_attr3 ?? "");
-  const isStartField = code === "08";
-  const isEndField = code === "09";
+  const isStartField = code === "09";
+  const isEndField = code === "10";
   const timeInputDisabled =
-    (isStartField && hasWorkTimeInput(extras.peerEndTime)) ||
-    (isEndField && hasWorkTimeInput(extras.peerStartTime));
+    (isStartField || isEndField) &&
+    (extras.workTimeAutoOnly ||
+      (isStartField &&
+        isPeerWorkTimeInputDisabled(
+          "start",
+          extras.workInOutKind,
+          extras.peerEndTime,
+        )) ||
+      (isEndField &&
+        isPeerWorkTimeInputDisabled(
+          "end",
+          extras.workInOutKind,
+          extras.peerStartTime,
+        )));
   const { opts, isCidReference, isPending, isError, error } =
     useEtcAttr2Options(row.c_attr2, extras.serverBaseUrl);
 
@@ -141,8 +194,22 @@ function EtcFieldMiddle({
     if (kind !== "combo" && kind !== "radio") return;
     if (opts.length === 0) return;
 
-    const current = String(field.value ?? "");
-    if (current && opts.some((o) => o.value === current)) return;
+    const current = String(field.value ?? "").trim();
+    if (current) {
+      const matched = opts.find(
+        (o) =>
+          o.value === current ||
+          o.value.toLowerCase() === current.toLowerCase() ||
+          o.label === current ||
+          o.label.toLowerCase() === current.toLowerCase(),
+      );
+      if (matched) {
+        if (matched.value !== current) {
+          field.onChange(matched.value);
+        }
+        return;
+      }
+    }
 
     const init = row.c_attr3?.trim() ?? "";
     if (init) {
@@ -158,10 +225,13 @@ function EtcFieldMiddle({
         field.onChange(ci.value);
         return;
       }
-    }
-
-    if (!current && opts[0]) {
-      field.onChange(opts[0].value);
+      const byLabel = opts.find(
+        (o) =>
+          o.label === init || o.label.toLowerCase() === init.toLowerCase(),
+      );
+      if (byLabel) {
+        field.onChange(byLabel.value);
+      }
     }
   }, [kind, opts, row.c_attr3, field.value, field.onChange]);
 
@@ -198,7 +268,7 @@ function EtcFieldMiddle({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className="flex flex-wrap items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
+      className={radioGroupClass(pairs.length)}
     >
       {pairs.map((opt, idx) => (
         <label
@@ -221,15 +291,20 @@ function EtcFieldMiddle({
     </div>
   );
 
-  const comboFromOpts = (valueAsNumber: boolean) => (
+  const comboFromOpts = (valueAsNumber: boolean) => {
+    const selectValue = resolveComboSelectValue(
+      String(field.value ?? ""),
+      opts,
+    );
+    return (
     <Select
       onValueChange={(v) =>
         field.onChange(valueAsNumber ? Number(v) : v)
       }
-      value={String(field.value ?? "")}
+      value={selectValue}
     >
       <SelectTrigger className={selectTriggerClass}>
-        <SelectValue />
+        <SelectValue placeholder="선택" />
       </SelectTrigger>
       <SelectContent className={selectContentClass}>
         {opts.map((opt) => (
@@ -239,24 +314,40 @@ function EtcFieldMiddle({
         ))}
       </SelectContent>
     </Select>
-  );
+    );
+  };
 
   const dateInput = () => (
-    <Input type="date" {...field} className={inputClass} />
+    <WorkDateDisplay
+      value={String(field.value ?? "")}
+      className={inputClass}
+      ariaLabel={ariaLabel}
+    />
   );
 
+  useEffect(() => {
+    if (code !== "09" && code !== "10") return;
+    const raw = String(field.value ?? "");
+    if (!isWorkTimeFormatHint(raw)) return;
+    field.onChange("");
+  }, [code, field.value, field.onChange]);
+
   const timeHmInput = () => {
-    const value = formatTimeWithColon(String(field.value ?? ""));
+    const value = formatTimeWithColon(
+      sanitizeWorkTimeValue(String(field.value ?? "")),
+    );
     return (
       <Input
         type="text"
         inputMode="numeric"
         maxLength={5}
-        className={inputClass}
-        placeholder="HH:MM"
+        className={
+          timeInputDisabled ? lockedFieldInputClass(inputClass) : inputClass
+        }
+        placeholder=""
         value={value}
-        disabled={timeInputDisabled}
-        aria-disabled={timeInputDisabled}
+        readOnly={timeInputDisabled}
+        aria-readonly={timeInputDisabled}
         onChange={(e) => {
           const next = formatTimeWithColon(e.target.value);
           if (isValidPartialTimeHm(next)) {
@@ -270,23 +361,30 @@ function EtcFieldMiddle({
     );
   };
 
-  const timeLooseInput = (placeholder: string) => (
+  const timeLooseInput = () => (
     <Input
       {...field}
       type="text"
-      className={inputClass}
+      className={
+        timeInputDisabled ? lockedFieldInputClass(inputClass) : inputClass
+      }
       inputMode="numeric"
       maxLength={5}
-      placeholder={placeholder}
-      disabled={timeInputDisabled}
-      aria-disabled={timeInputDisabled}
+      placeholder=""
+      value={formatTimeWithColon(
+        sanitizeWorkTimeValue(String(field.value ?? "")),
+      )}
+      readOnly={timeInputDisabled}
+      aria-readonly={timeInputDisabled}
       onChange={(e) => {
         const next = formatTimeWithColon(e.target.value);
         if (isValidPartialTimeHm(next)) {
           field.onChange(next);
         }
       }}
-      value={field.value}
+      onBlur={field.onBlur}
+      name={field.name}
+      ref={field.ref}
     />
   );
 
@@ -300,7 +398,7 @@ function EtcFieldMiddle({
         </span>
       );
     }
-    return comboFromOpts(code === "10");
+    return comboFromOpts(code === "11");
   }
 
   if (kind === "radio") {
@@ -326,13 +424,6 @@ function EtcFieldMiddle({
         {caseWhenIssue ? (
           <p className="text-xs text-amber-800">{caseWhenIssue}</p>
         ) : null}
-        {timeInputDisabled ? (
-          <p className="text-xs text-zinc-500">
-            {isStartField
-              ? "퇴근시간이 입력되어 출근시간을 입력할 수 없습니다."
-              : "출근시간이 입력되어 퇴근시간을 입력할 수 없습니다."}
-          </p>
-        ) : null}
         {timeHmInput()}
       </div>
     );
@@ -341,6 +432,8 @@ function EtcFieldMiddle({
   if (kind === "text") {
     switch (code) {
       case "01":
+        return regNumberInput();
+      case "02":
         return (
           <Input
             {...field}
@@ -348,28 +441,13 @@ function EtcFieldMiddle({
             autoComplete="organization"
           />
         );
-      case "02":
+      case "03":
         return (
           <Input
             {...field}
             className={inputClass}
             autoComplete="name"
             placeholder="외국인등록증 기준"
-          />
-        );
-      case "03":
-        return (
-          <Input
-            {...field}
-            className={inputClass}
-            inputMode="numeric"
-            maxLength={13}
-            placeholder="13자리"
-            onChange={(e) => {
-              const v = e.target.value.replace(/\D/g, "").slice(0, 13);
-              field.onChange(v);
-            }}
-            value={field.value}
           />
         );
       case "04":
@@ -388,7 +466,7 @@ function EtcFieldMiddle({
             value={field.value}
           />
         );
-      case "10":
+      case "11":
         return (
           <Input
             className={inputClass}
@@ -404,9 +482,9 @@ function EtcFieldMiddle({
             ref={field.ref}
           />
         );
-      case "08":
       case "09":
-        return timeLooseInput("HH:MM");
+      case "10":
+        return timeLooseInput();
       default:
         return <Input {...field} className={inputClass} />;
     }
@@ -414,6 +492,8 @@ function EtcFieldMiddle({
 
   switch (code) {
     case "01":
+      return regNumberInput();
+    case "02":
       return (
         <Input
           {...field}
@@ -421,28 +501,13 @@ function EtcFieldMiddle({
           autoComplete="organization"
         />
       );
-    case "02":
+    case "03":
       return (
         <Input
           {...field}
           className={inputClass}
           autoComplete="name"
           placeholder="외국인등록증 기준"
-        />
-      );
-    case "03":
-      return (
-        <Input
-          {...field}
-          className={inputClass}
-          inputMode="numeric"
-          maxLength={13}
-          placeholder="13자리"
-          onChange={(e) => {
-            const v = e.target.value.replace(/\D/g, "").slice(0, 13);
-            field.onChange(v);
-          }}
-          value={field.value}
         />
       );
     case "04":
@@ -467,17 +532,17 @@ function EtcFieldMiddle({
       return dateInput();
     case "07":
       return radioFromMaster(opts);
-    case "08":
     case "09":
-      return timeLooseInput("HH:MM");
     case "10":
+      return timeLooseInput();
+    case "11":
       return (
         <Select
           onValueChange={(v) => field.onChange(Number(v))}
-          value={String(field.value)}
+          value={resolveOvertimeSelectValue(Number(field.value))}
         >
           <SelectTrigger className={selectTriggerClass}>
-            <SelectValue />
+            <SelectValue placeholder="선택" />
           </SelectTrigger>
           <SelectContent className={selectContentClass}>
             {OVERTIME_MINUTE_OPTIONS.map((m) => (
@@ -488,7 +553,7 @@ function EtcFieldMiddle({
           </SelectContent>
         </Select>
       );
-    case "11":
+    case "12":
       return (
         <div
           role="radiogroup"
@@ -522,7 +587,7 @@ function EtcFieldMiddle({
           </label>
         </div>
       );
-    case "12": {
+    case "13": {
       const { serverBaseUrl, deptQuery, departmentOptions } = extras;
       return (
         <>
@@ -548,7 +613,7 @@ function EtcFieldMiddle({
             <div
               role="radiogroup"
               aria-label={ariaLabel}
-              className="flex flex-wrap items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
+              className={radioGroupClass(departmentOptions.length)}
             >
               {departmentOptions.map((opt, idx) => (
                 <label
@@ -584,6 +649,12 @@ type Props = {
   serverBaseUrl: string;
   deptQuery: UseQueryResult<DepartmentWorkOption[], Error>;
   departmentOptions: DepartmentWorkOption[];
+  workInOutKind: WorkInOutKind | null;
+  workTimeAutoOnly: boolean;
+  onRegNumberKeyDown: (
+    event: Parameters<KeyboardEventHandler<HTMLElement>>[0],
+    regNumber: string,
+  ) => void;
 };
 
 export function AttendanceFormEtcDynamicRows({
@@ -592,6 +663,9 @@ export function AttendanceFormEtcDynamicRows({
   serverBaseUrl,
   deptQuery,
   departmentOptions,
+  workInOutKind,
+  workTimeAutoOnly,
+  onRegNumberKeyDown,
 }: Props) {
   const normalizedRows = useMemo(
     () =>
@@ -610,6 +684,9 @@ export function AttendanceFormEtcDynamicRows({
     departmentOptions,
     peerStartTime: String(peerStartTime),
     peerEndTime: String(peerEndTime),
+    workInOutKind,
+    workTimeAutoOnly,
+    onRegNumberKeyDown,
   };
 
   return (
@@ -628,6 +705,46 @@ export function AttendanceFormEtcDynamicRows({
               .with("01", () => (
                 <FormField
                   control={control}
+                  name="regNumber"
+                  render={({ field }) => (
+                    <tr>
+                      <td className={L}>{row.c_name}</td>
+                      <td className={M}>
+                        <FormItem className="space-y-0.5">
+                          <FormLabel className="sr-only">
+                            생년월일(외국인등록번호 13자리)
+                          </FormLabel>
+                          <FormControl>
+                            <EtcFieldMiddle
+                              code="01"
+                              row={row}
+                              field={field}
+                              ariaLabel="생년월일(등록번호)"
+                              extras={extras}
+                            />
+                          </FormControl>
+                          <FormMessage className="text-xs sm:text-sm" />
+                        </FormItem>
+                      </td>
+                      <td className={R}>
+                        {noteFromRow(
+                          row,
+                          <>
+                            외국인등록번호 13자리
+                            <br />
+                            {ru(
+                              "(Основано на регистрационном номере иностранца, 13 цифр)",
+                            )}
+                          </>,
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                />
+              ))
+              .with("02", () => (
+                <FormField
+                  control={control}
                   name="companyName"
                   render={({ field }) => (
                     <tr>
@@ -635,9 +752,9 @@ export function AttendanceFormEtcDynamicRows({
                       <td className={M}>
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">업체명</FormLabel>
-                          <FormControl>
+                          <FormControl data-attendance-focus="companyName">
                             <EtcFieldMiddle
-                              code="01"
+                              code="02"
                               row={row}
                               field={field}
                               ariaLabel="업체명"
@@ -652,7 +769,7 @@ export function AttendanceFormEtcDynamicRows({
                   )}
                 />
               ))
-              .with("02", () => (
+              .with("03", () => (
                 <FormField
                   control={control}
                   name="fullName"
@@ -663,7 +780,7 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">이름</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="02" row={row} field={field} ariaLabel="이름" extras={extras} />
+                            <EtcFieldMiddle code="03" row={row} field={field} ariaLabel="이름" extras={extras} />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -675,40 +792,6 @@ export function AttendanceFormEtcDynamicRows({
                             외국인등록증 기준
                             <br />
                             {ru("(Согласно иностранной регистрационной карте)")}
-                          </>,
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                />
-              ))
-              .with("03", () => (
-                <FormField
-                  control={control}
-                  name="regNumber"
-                  render={({ field }) => (
-                    <tr>
-                      <td className={L}>{row.c_name}</td>
-                      <td className={M}>
-                        <FormItem className="space-y-0.5">
-                          <FormLabel className="sr-only">
-                            생년월일(외국인등록번호 13자리)
-                          </FormLabel>
-                          <FormControl>
-                            <EtcFieldMiddle code="03" row={row} field={field} ariaLabel="생년월일(등록번호)" extras={extras} />
-                          </FormControl>
-                          <FormMessage className="text-xs sm:text-sm" />
-                        </FormItem>
-                      </td>
-                      <td className={R}>
-                        {noteFromRow(
-                          row,
-                          <>
-                            외국인등록번호 13자리
-                            <br />
-                            {ru(
-                              "(Основано на регистрационном номере иностранца, 13 цифр)",
-                            )}
                           </>,
                         )}
                       </td>
@@ -812,7 +895,7 @@ export function AttendanceFormEtcDynamicRows({
                       <td className={M}>
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">주간/야간</FormLabel>
-                          <FormControl>
+                          <FormControl data-attendance-focus="shift">
                             <EtcFieldMiddle code="07" row={row} field={field} ariaLabel="주간/야간" extras={extras} />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
@@ -828,6 +911,27 @@ export function AttendanceFormEtcDynamicRows({
               .with("08", () => (
                 <FormField
                   control={control}
+                  name="workInOut"
+                  render={({ field }) => (
+                    <tr>
+                      <td className={L}>{row.c_name}</td>
+                      <td className={M}>
+                        <FormItem className="space-y-0.5">
+                          <FormLabel className="sr-only">출근/퇴근</FormLabel>
+                          <FormControl>
+                            <EtcFieldMiddle code="08" row={row} field={field} ariaLabel="출근/퇴근" extras={extras} />
+                          </FormControl>
+                          <FormMessage className="text-xs sm:text-sm" />
+                        </FormItem>
+                      </td>
+                      <td className={R}>{noteFromRow(row, "\u00a0")}</td>
+                    </tr>
+                  )}
+                />
+              ))
+              .with("09", () => (
+                <FormField
+                  control={control}
                   name="startTime"
                   render={({ field }) => (
                     <tr>
@@ -836,7 +940,7 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">출근시간</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="08" row={row} field={field} ariaLabel="출근시간" extras={extras} />
+                            <EtcFieldMiddle code="09" row={row} field={field} ariaLabel="출근시간" extras={extras} />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -855,7 +959,7 @@ export function AttendanceFormEtcDynamicRows({
                   )}
                 />
               ))
-              .with("09", () => (
+              .with("10", () => (
                 <FormField
                   control={control}
                   name="endTime"
@@ -866,7 +970,7 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">퇴근시간</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="09" row={row} field={field} ariaLabel="퇴근시간" extras={extras} />
+                            <EtcFieldMiddle code="10" row={row} field={field} ariaLabel="퇴근시간" extras={extras} />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -876,7 +980,7 @@ export function AttendanceFormEtcDynamicRows({
                   )}
                 />
               ))
-              .with("10", () => (
+              .with("11", () => (
                 <FormField
                   control={control}
                   name="overtimeMinutes"
@@ -887,7 +991,7 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">잔업시간</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="10" row={row} field={field} ariaLabel="잔업시간" extras={extras} />
+                            <EtcFieldMiddle code="11" row={row} field={field} ariaLabel="잔업시간" extras={extras} />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -906,7 +1010,7 @@ export function AttendanceFormEtcDynamicRows({
                   )}
                 />
               ))
-              .with("11", () => (
+              .with("12", () => (
                 <FormField
                   control={control}
                   name="dinner"
@@ -917,7 +1021,7 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">석식여부</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="11" row={row} field={field} ariaLabel="석식여부" extras={extras} />
+                            <EtcFieldMiddle code="12" row={row} field={field} ariaLabel="석식여부" extras={extras} />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -927,7 +1031,7 @@ export function AttendanceFormEtcDynamicRows({
                   )}
                 />
               ))
-              .with("12", () => (
+              .with("13", () => (
                 <FormField
                   control={control}
                   name="department"
@@ -938,7 +1042,7 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">근무부서</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="12" row={row} field={field} ariaLabel="근무부서" extras={extras} />
+                            <EtcFieldMiddle code="13" row={row} field={field} ariaLabel="근무부서" extras={extras} />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>

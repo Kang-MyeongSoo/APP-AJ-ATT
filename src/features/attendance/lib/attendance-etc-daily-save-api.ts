@@ -16,6 +16,9 @@ export type AttEtcDailySaveBody = {
   p_cel_no: string;
   p_gender: string;
   p_att_dn_flag: string;
+  p_work_in_out: string;
+  /** ATT_ETC_FORM 08 출근/퇴근 구분 (예: 1=출근, 2=퇴근) */
+  p_ter_mode: string;
   p_work_start: string;
   p_work_end: string;
   p_over_time: string;
@@ -59,6 +62,8 @@ export function buildAttEtcDailySaveBody(
     p_cel_no: formatPhoneDigits(values.phone),
     p_gender: values.gender.trim(),
     p_att_dn_flag: values.shift.trim(),
+    p_work_in_out: values.workInOut.trim(),
+    p_ter_mode: values.workInOut.trim(),
     p_work_start: formatWorkTimeHm(values.startTime),
     p_work_end: formatWorkTimeHm(values.endTime),
     p_over_time: String(values.overtimeMinutes),

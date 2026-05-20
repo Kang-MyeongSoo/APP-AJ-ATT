@@ -1,13 +1,20 @@
 import type { KeyboardEvent } from "react";
 
+const FOCUSABLE_TEXT_INPUT_SELECTOR = [
+  'input:not([disabled]):not([readonly]):not([tabindex="-1"]):not([data-attendance-skip-focus])',
+  ':not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="date"])',
+].join("");
+
 function getRowFocusTarget(row: Element): HTMLElement | null {
   const textLike = row.querySelector<HTMLElement>(
-    [
-      'input:not([disabled]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"])',
-      "textarea:not([disabled])",
-    ].join(", "),
+    [FOCUSABLE_TEXT_INPUT_SELECTOR, "textarea:not([disabled])"].join(", "),
   );
   if (textLike) return textLike;
+
+  const combo = row.querySelector<HTMLElement>(
+    'button[role="combobox"]:not([disabled])',
+  );
+  if (combo) return combo;
 
   const radio = row.querySelector<HTMLInputElement>(
     'input[type="radio"]:not([disabled])',
@@ -26,9 +33,15 @@ export function shouldHandleAttendanceEnterNavigation(
 ): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target instanceof HTMLInputElement) {
-    if (target.disabled) return false;
+    if (target.disabled || target.readOnly || target.tabIndex < 0) return false;
+    if (target.dataset.attendanceSkipFocus !== undefined) return false;
     const type = target.type;
-    if (type === "hidden" || type === "checkbox" || type === "submit") {
+    if (
+      type === "hidden" ||
+      type === "checkbox" ||
+      type === "submit" ||
+      type === "date"
+    ) {
       return false;
     }
     return true;

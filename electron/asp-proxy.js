@@ -99,6 +99,8 @@ function isAttEtcDailySaveBody(value) {
     'p_cel_no',
     'p_gender',
     'p_att_dn_flag',
+    'p_work_in_out',
+    'p_ter_mode',
     'p_work_start',
     'p_work_end',
     'p_over_time',

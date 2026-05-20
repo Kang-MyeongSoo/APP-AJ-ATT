@@ -21,6 +21,8 @@ export type AttendanceFormTexts = {
   dateLabelRu: string;
   shiftLabel: string;
   shiftLabelRu: string;
+  workInOutLabel: string;
+  workInOutLabelRu: string;
   startTimeLabel: string;
   startTimeLabelRu: string;
   endTimeLabel: string;
@@ -53,6 +55,8 @@ export const defaultAttendanceFormTexts: AttendanceFormTexts = {
   dateLabelRu: "(Дата)",
   shiftLabel: "주간/야간(Дневное/Ночное)",
   shiftLabelRu: "(Дневное/Ночное)",
+  workInOutLabel: "출근/퇴근",
+  workInOutLabelRu: "",
   startTimeLabel: "출근시간(Время начала)",
   startTimeLabelRu: "(Время начала)",
   endTimeLabel: "퇴근시간(Время окончания)",

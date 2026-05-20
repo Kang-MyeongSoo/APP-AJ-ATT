@@ -500,11 +500,6 @@ export default function Home() {
               </Button>
             </div>
 
-            {imageBase64 && (
-              <p className="truncate text-sm text-zinc-600" title={imageBase64}>
-                Base64 길이: {imageBase64.length}자
-              </p>
-            )}
           </div>
         </div>
       </div>
