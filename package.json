@@ -1,6 +1,6 @@
 {
   "name": "app-aj-att",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -9,9 +9,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "electron:dev": "concurrently -n NEXT,ELECTRON -c cyan,yellow \"npm run dev:webpack\" \"wait-on http://127.0.0.1:3000 && electron .\"",
-    "electron:dev:devtools": "concurrently -n NEXT,ELECTRON -c cyan,yellow \"npm run dev:webpack\" \"wait-on http://127.0.0.1:3000 && ELECTRON_DEV_TOOLS=true electron .\"",
-    "electron:dev:network": "concurrently -n NEXT,ELECTRON -c cyan,yellow \"next dev --hostname 0.0.0.0\" \"wait-on http://127.0.0.1:3000 && ELECTRON_TEST_URL=http://192.168.0.18:3000 ELECTRON_DEV_TOOLS=true electron .\"",
+    "electron:dev": "concurrently -n NEXT,ELECTRON -c cyan,yellow \"npm run dev:webpack\" \"wait-on http://127.0.0.1:3000 && ELECTRON_DEV_SESSION=1 electron .\"",
+    "electron:dev:devtools": "concurrently -n NEXT,ELECTRON -c cyan,yellow \"npm run dev:webpack\" \"wait-on http://127.0.0.1:3000 && ELECTRON_DEV_SESSION=1 ELECTRON_DEV_TOOLS=true electron .\"",
+    "electron:dev:network": "concurrently -n NEXT,ELECTRON -c cyan,yellow \"next dev --hostname 0.0.0.0\" \"wait-on http://127.0.0.1:3000 && ELECTRON_DEV_SESSION=1 ELECTRON_TEST_URL=http://192.168.0.18:3000 ELECTRON_DEV_TOOLS=true electron .\"",
     "electron:build": "npm run build && electron-builder",
     "electron:build:win": "npm run build && electron-builder --win --x64",
     "electron:start:static": "npm run build && ELECTRON_USE_STATIC=1 electron ."

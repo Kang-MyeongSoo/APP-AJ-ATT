@@ -17,11 +17,8 @@ import {
 } from "@/components/ui/select";
 import type { EtcFormMstRow } from "@/features/attendance/lib/attendance-etc-form-mst-api";
 import { normalizeAttendanceFieldCode } from "@/features/attendance/lib/attendance-field-codes";
-import {
-  OVERTIME_MINUTE_OPTIONS,
-  resolveOvertimeSelectValue,
-  type AttendanceFormValues,
-} from "@/features/attendance/lib/attendance-form-schema";
+import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
+import { OvertimeMinutesField } from "@/features/attendance/components/overtime-minutes-field";
 import { useEtcAttr2Options } from "@/features/attendance/hooks/use-etc-attr2-options";
 import { cn } from "@/lib/utils";
 import { lockedFieldInputClass } from "@/features/attendance/lib/attendance-locked-field-input";
@@ -77,13 +74,6 @@ function noteFromRow(row: EtcFormMstRow, fallback: ReactNode): ReactNode {
 
 function normalizeMasterMultiline(value: string): string {
   return value.replaceAll("\\n", "\n");
-}
-
-function formatOvertimeLabel(minutes: number): string {
-  if (minutes === 0) return "없음 (0분)";
-  const h = minutes / 60;
-  if (h === Math.floor(h)) return `${h}시간`;
-  return `${h}시간`;
 }
 
 function formatTimeWithColon(value: string): string {
@@ -145,10 +135,12 @@ function EtcFieldMiddle({
     peerEndTime: string;
     workInOutKind: WorkInOutKind | null;
     workTimeAutoOnly: boolean;
+    allowDevEndTimeEdit: boolean;
     onRegNumberKeyDown?: (
       event: Parameters<KeyboardEventHandler<HTMLElement>>[0],
       regNumber: string,
     ) => void;
+    onWorkInOutSelected?: (workInOutValue: string) => void;
   };
 }) {
   const kind = normalizeEtcInputKind(row.c_attr1);
@@ -174,7 +166,8 @@ function EtcFieldMiddle({
   const isEndField = code === "10";
   const timeInputDisabled =
     (isStartField || isEndField) &&
-    (extras.workTimeAutoOnly ||
+    ((extras.workTimeAutoOnly &&
+      !(isEndField && extras.allowDevEndTimeEdit)) ||
       (isStartField &&
         isPeerWorkTimeInputDisabled(
           "start",
@@ -280,7 +273,12 @@ function EtcFieldMiddle({
             name={field.name}
             value={opt.value}
             checked={String(field.value) === opt.value}
-            onChange={() => field.onChange(opt.value)}
+            onChange={() => {
+              field.onChange(opt.value);
+              if (code === "08") {
+                extras.onWorkInOutSelected?.(opt.value);
+              }
+            }}
             onBlur={field.onBlur}
             ref={idx === 0 ? field.ref : undefined}
             className="h-4 w-4 accent-zinc-900"
@@ -298,9 +296,13 @@ function EtcFieldMiddle({
     );
     return (
     <Select
-      onValueChange={(v) =>
-        field.onChange(valueAsNumber ? Number(v) : v)
-      }
+      onValueChange={(v) => {
+        const next = valueAsNumber ? Number(v) : v;
+        field.onChange(next);
+        if (code === "08") {
+          extras.onWorkInOutSelected?.(String(v));
+        }
+      }}
       value={selectValue}
     >
       <SelectTrigger className={selectTriggerClass}>
@@ -388,6 +390,15 @@ function EtcFieldMiddle({
     />
   );
 
+  if (code === "11") {
+    return (
+      <OvertimeMinutesField
+        value={Number(field.value) || 0}
+        inputClass={inputClass}
+      />
+    );
+  }
+
   if (kind === "combo") {
     const loadState = optionLoadState();
     if (loadState) return loadState;
@@ -398,7 +409,7 @@ function EtcFieldMiddle({
         </span>
       );
     }
-    return comboFromOpts(code === "11");
+    return comboFromOpts(false);
   }
 
   if (kind === "radio") {
@@ -535,24 +546,6 @@ function EtcFieldMiddle({
     case "09":
     case "10":
       return timeLooseInput();
-    case "11":
-      return (
-        <Select
-          onValueChange={(v) => field.onChange(Number(v))}
-          value={resolveOvertimeSelectValue(Number(field.value))}
-        >
-          <SelectTrigger className={selectTriggerClass}>
-            <SelectValue placeholder="선택" />
-          </SelectTrigger>
-          <SelectContent className={selectContentClass}>
-            {OVERTIME_MINUTE_OPTIONS.map((m) => (
-              <SelectItem key={m} value={String(m)}>
-                {formatOvertimeLabel(m)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      );
     case "12":
       return (
         <div
@@ -651,10 +644,12 @@ type Props = {
   departmentOptions: DepartmentWorkOption[];
   workInOutKind: WorkInOutKind | null;
   workTimeAutoOnly: boolean;
+  allowDevEndTimeEdit: boolean;
   onRegNumberKeyDown: (
     event: Parameters<KeyboardEventHandler<HTMLElement>>[0],
     regNumber: string,
   ) => void;
+  onWorkInOutSelected?: (workInOutValue: string) => void;
 };
 
 export function AttendanceFormEtcDynamicRows({
@@ -665,7 +660,9 @@ export function AttendanceFormEtcDynamicRows({
   departmentOptions,
   workInOutKind,
   workTimeAutoOnly,
+  allowDevEndTimeEdit,
   onRegNumberKeyDown,
+  onWorkInOutSelected,
 }: Props) {
   const normalizedRows = useMemo(
     () =>
@@ -686,7 +683,9 @@ export function AttendanceFormEtcDynamicRows({
     peerEndTime: String(peerEndTime),
     workInOutKind,
     workTimeAutoOnly,
+    allowDevEndTimeEdit,
     onRegNumberKeyDown,
+    onWorkInOutSelected,
   };
 
   return (

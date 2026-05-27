@@ -3,9 +3,8 @@
 import { Input } from "@/components/ui/input";
 import { regNumberMaskedInputClass } from "@/features/attendance/lib/attendance-reg-number-input";
 import { cn } from "@/lib/utils";
-import { useRegNumberMaskStore } from "@/features/attendance/stores/reg-number-mask-store";
 import { Eye, EyeOff } from "lucide-react";
-import { useEffect, useState, type KeyboardEventHandler, type Ref } from "react";
+import { useState, type KeyboardEventHandler, type Ref } from "react";
 
 type RegNumberMaskedInputProps = {
   value: string;
@@ -26,12 +25,7 @@ export function RegNumberMaskedInput({
   className,
   onKeyDown,
 }: RegNumberMaskedInputProps) {
-  const [masked, setMasked] = useState(true);
-  const remaskVersion = useRegNumberMaskStore((s) => s.remaskVersion);
-
-  useEffect(() => {
-    setMasked(true);
-  }, [remaskVersion]);
+  const [masked, setMasked] = useState(false);
 
   return (
     <div className="relative w-full">

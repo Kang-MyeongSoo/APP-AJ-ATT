@@ -1,5 +1,6 @@
 "use client";
 
+import { CameraActionFooterNotice } from "@/components/camera-action-footer-notice";
 import { ResultMessageDialog } from "@/components/result-message-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,14 @@ import {
   parseAttendanceFormTexts,
   type AttendanceFormTexts,
 } from "@/features/attendance/lib/attendance-form-texts";
+import { useClientHydrated } from "@/hooks/use-client-hydrated";
 import { useToast } from "@/hooks/use-toast";
+import {
+  defaultCameraActionFooterTexts,
+  parseCameraActionFooterTexts,
+  CAMERA_ACTION_FOOTER_TEXTS_STORAGE_KEY,
+  type CameraActionFooterTexts,
+} from "@/lib/camera-action-footer-texts";
 import {
   CAMERA_PREVIEW_WIDTH_DEFAULT,
   readCameraPreviewWidth,
@@ -26,6 +34,7 @@ import {
 import {
   buildR2ApiErrorDialogContent,
   buildR2FlagMsgDialogContent,
+  formatApiResponseForDisplay,
   isR2FlagSuccess,
   type R2FlagMsgDialogContent,
 } from "@/lib/r2-flag-msg-response";
@@ -33,16 +42,16 @@ import { verifyMobileLogin } from "@/lib/mobile-login-api";
 import { ServerBaseUrlSetupScreen } from "@/features/settings/components/server-base-url-setup-screen";
 import { readServerBaseUrl } from "@/lib/server-connection-storage";
 import { writeSettingsSessionLoginId } from "@/lib/settings-session-storage";
-import {
-  Camera,
-  CameraOff,
-  ImagePlus,
-  Send,
-  Settings,
-} from "lucide-react";
+import { Camera, CameraOff, ImagePlus, Send, Settings } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 const PLACEHOLDER_SRC = "https://picsum.photos/seed/app-aj-att/800/600";
 const MAX_CAPTURE_WIDTH = 480;
@@ -52,13 +61,21 @@ const JPEG_QUALITY = 0.92;
 function resolveDailySaveResultDialog(
   json: AttEtcDailySaveApiJson | { error?: string },
 ): R2FlagMsgDialogContent {
-  if ("error" in json && typeof json.error === "string") {
+  if (
+    "error" in json &&
+    typeof json.error === "string" &&
+    json.error.trim() !== ""
+  ) {
     return buildR2ApiErrorDialogContent(json.error);
   }
-  if ("data" in json) {
+  if ("data" in json && json.data !== undefined) {
     return buildR2FlagMsgDialogContent(json.data);
   }
-  return buildR2ApiErrorDialogContent("응답을 해석할 수 없습니다.");
+  console.warn("[att-send] 근태 저장 응답 형식이 예상과 다릅니다:", json);
+  const snippet = formatApiResponseForDisplay(json);
+  return buildR2ApiErrorDialogContent(
+    `앱이 근태 저장 응답 형식을 해석하지 못했습니다.\n\n【수신 내용】\n${snippet}`,
+  );
 }
 
 function applyDailySaveResult(
@@ -114,6 +131,15 @@ function captureFrameToDataUrl(
   return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
 }
 
+function ActionButtonLabel({ ko, en }: { ko: string; en: string }) {
+  return (
+    <span className="flex flex-col items-start leading-tight">
+      <span>{ko}</span>
+      <span className="text-[0.9rem] font-normal opacity-80">{en}</span>
+    </span>
+  );
+}
+
 function isVideoPlayInterruptedError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (error.name === "AbortError") return true;
@@ -144,24 +170,46 @@ export default function Home() {
   const [settingsLoginId, setSettingsLoginId] = useState("");
   const [settingsPassword, setSettingsPassword] = useState("");
   const [settingsLoginSubmitting, setSettingsLoginSubmitting] = useState(false);
-  const [resultDialog, setResultDialog] = useState<R2FlagMsgDialogContent | null>(
-    null,
-  );
+  const [resultDialog, setResultDialog] =
+    useState<R2FlagMsgDialogContent | null>(null);
   const [cameraPreviewWidth, setCameraPreviewWidth] = useState(
     CAMERA_PREVIEW_WIDTH_DEFAULT,
   );
-  const [serverBaseUrlReady, setServerBaseUrlReady] = useState(() =>
-    readServerBaseUrl().trim().length > 0,
-  );
+  const [cameraActionFooterTexts, setCameraActionFooterTexts] =
+    useState<CameraActionFooterTexts>(defaultCameraActionFooterTexts);
+  const [serverBaseUrlReady, setServerBaseUrlReady] = useState(false);
+  const isClientHydrated = useClientHydrated();
 
   useEffect(() => {
+    if (!isClientHydrated) return;
+
     const parsed = parseAttendanceFormTexts(
       window.localStorage.getItem(ATTENDANCE_FORM_TEXTS_STORAGE_KEY),
     );
     if (parsed) setAttendanceFormTexts(parsed);
+    const footerParsed = parseCameraActionFooterTexts(
+      window.localStorage.getItem(CAMERA_ACTION_FOOTER_TEXTS_STORAGE_KEY),
+    );
+    if (footerParsed) setCameraActionFooterTexts(footerParsed);
     setCameraPreviewWidth(readCameraPreviewWidth());
     setServerBaseUrlReady(readServerBaseUrl().trim().length > 0);
-  }, []);
+  }, [isClientHydrated]);
+
+  useEffect(() => {
+    if (!isClientHydrated) return;
+
+    const syncFooterTexts = () => {
+      const footerParsed = parseCameraActionFooterTexts(
+        window.localStorage.getItem(CAMERA_ACTION_FOOTER_TEXTS_STORAGE_KEY),
+      );
+      setCameraActionFooterTexts(
+        footerParsed ?? defaultCameraActionFooterTexts,
+      );
+    };
+
+    window.addEventListener("focus", syncFooterTexts);
+    return () => window.removeEventListener("focus", syncFooterTexts);
+  }, [isClientHydrated]);
 
   const stopStream = useCallback(() => {
     const video = videoRef.current;
@@ -221,6 +269,7 @@ export default function Home() {
       video.srcObject = null;
     }
     setCameraEnabled(false);
+    setImageBase64(null);
     setPreviewUrl(PLACEHOLDER_SRC);
   }, [stopStream]);
 
@@ -263,8 +312,12 @@ export default function Home() {
       return;
     }
 
-    const validation = await attendanceFormRef.current.getValidatedValues();
+    const validation = await attendanceFormRef.current.validateBeforeSend();
     if (validation.ok === false) {
+      if ("dialog" in validation) {
+        setResultDialog(validation.dialog);
+        return;
+      }
       console.warn("[att-send] validation failed:", validation.message);
       toast({
         variant: "destructive",
@@ -298,7 +351,8 @@ export default function Home() {
         | { file_name: string; file_path: string }
         | undefined;
 
-      if (imageBase64) {
+      /** 카메라를 끈 상태에서는 사진 전송을 하지 않고 근태 데이터만 전송 */
+      if (cameraEnabled && imageBase64) {
         const uploadResult = await uploadAttImage(
           serverBaseUrl,
           formValues,
@@ -316,7 +370,11 @@ export default function Home() {
         };
       }
 
-      console.log("[att-send] 근태 POST 시작");
+      console.log("[att-send] 근태 POST API 호출", {
+        cameraEnabled,
+        imageUploadRan: cameraEnabled && Boolean(imageBase64),
+        dailySaveIncludesFileFields: Boolean(uploadedFileInfo),
+      });
       try {
         const json = await postAttEtcDailySave(
           serverBaseUrl,
@@ -351,7 +409,9 @@ export default function Home() {
     setSettingsPassword("");
   };
 
-  const handleSubmitSettingsLogin = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmitSettingsLogin = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
     const serverBaseUrl = readServerBaseUrl();
 
@@ -381,11 +441,13 @@ export default function Home() {
     }
   };
 
+  if (!isClientHydrated) {
+    return <div className="h-screen bg-white" aria-busy="true" />;
+  }
+
   if (!serverBaseUrlReady) {
     return (
-      <ServerBaseUrlSetupScreen
-        onSaved={() => setServerBaseUrlReady(true)}
-      />
+      <ServerBaseUrlSetupScreen onSaved={() => setServerBaseUrlReady(true)} />
     );
   }
 
@@ -422,6 +484,7 @@ export default function Home() {
               ref={attendanceFormRef}
               className="h-full"
               texts={attendanceFormTexts}
+              onAttendanceAlert={setResultDialog}
             />
           </aside>
           <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto lg:flex-[0.85] [scrollbar-gutter:stable]">
@@ -470,36 +533,46 @@ export default function Home() {
               <Button
                 type="button"
                 size="lg"
-                className="gap-2 rounded-full text-base"
+                className="h-auto gap-2 rounded-full px-5 py-3 text-base"
                 onClick={handleCapture}
                 disabled={!cameraReady}
+                aria-label="촬영 Capture"
               >
-                <Camera className="h-6 w-6" />
-                촬영
+                <Camera className="h-6 w-6 shrink-0" />
+                <ActionButtonLabel ko="촬영" en="Capture" />
               </Button>
               <Button
                 type="button"
                 size="lg"
                 variant="secondary"
-                className="gap-2 rounded-full text-base"
+                className="h-auto gap-2 rounded-full px-5 py-3 text-base"
                 onClick={handleReopenCamera}
+                aria-label="카메라 다시 열기 Reopen camera"
               >
-                <ImagePlus className="h-6 w-6" />
-                카메라 다시 열기
+                <ImagePlus className="h-6 w-6 shrink-0" />
+                <ActionButtonLabel ko="카메라 다시 열기" en="Reopen camera" />
               </Button>
               <Button
                 type="button"
                 size="lg"
                 variant="default"
-                className="gap-2 rounded-full bg-emerald-600 text-base hover:bg-emerald-700"
+                className="h-auto gap-2 rounded-full bg-emerald-600 px-5 py-3 text-base hover:bg-emerald-700"
                 onClick={() => void handleSend()}
                 disabled={sending}
+                aria-label={sending ? "전송 중 Sending" : "전송 Send"}
               >
-                <Send className="h-6 w-6" />
-                {sending ? "전송 중…" : "전송"}
+                <Send className="h-6 w-6 shrink-0" />
+                {sending ? (
+                  <ActionButtonLabel ko="전송 중…" en="Sending…" />
+                ) : (
+                  <ActionButtonLabel ko="전송" en="Send" />
+                )}
               </Button>
             </div>
-
+            <CameraActionFooterNotice
+              texts={cameraActionFooterTexts}
+              className="mt-3"
+            />
           </div>
         </div>
       </div>

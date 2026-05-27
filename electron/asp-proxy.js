@@ -291,6 +291,12 @@ async function proxyAttEtcDailySave(input) {
 
   const requestBody = Buffer.from(JSON.stringify(payload), 'utf8');
 
+  console.log('[asp-att-etc-daily-save] POST', target.toString(), {
+    hasFileName: typeof payload.p_file_name === 'string' && payload.p_file_name.length > 0,
+    hasFilePath: typeof payload.p_file_path === 'string' && payload.p_file_path.length > 0,
+    bodyBytes: requestBody.length,
+  });
+
   let remoteResponse;
   try {
     remoteResponse = await fetch(target.toString(), {
@@ -311,6 +317,12 @@ async function proxyAttEtcDailySave(input) {
   } catch {
     data = { raw: text };
   }
+
+  console.log('[asp-att-etc-daily-save] upstream', {
+    httpStatus: remoteResponse.status,
+    ok: remoteResponse.ok,
+    bodyPreview: typeof text === 'string' ? text.slice(0, 200) : '',
+  });
 
   return {
     ok: remoteResponse.ok,

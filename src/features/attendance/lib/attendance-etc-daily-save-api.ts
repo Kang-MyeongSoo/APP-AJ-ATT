@@ -1,9 +1,6 @@
 import type { AttImageUploadFileInfo } from "@/features/attendance/lib/att-image-upload-api";
 import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
-import {
-  isAspProxyError,
-  proxyAttEtcDailySave,
-} from "@/lib/asp-remote-client";
+import { isAspProxyError, proxyAttEtcDailySave } from "@/lib/asp-remote-client";
 import { encodeAspUtf8JsonField } from "@/lib/legacy-asp-json-body";
 
 export const ATT_ETC_DAILY_SAVE_USER_ID = "DesktopApp";
@@ -25,8 +22,9 @@ export type AttEtcDailySaveBody = {
   p_dinner_yn: string;
   p_dpt_work: string;
   p_user_id: string;
-  p_file_name?: string;
-  p_file_path?: string;
+  /** 사진 없을 때도 키는 빈 문자열로 항상 전송 */
+  p_file_name: string;
+  p_file_path: string;
 };
 
 export type AttEtcDailySaveApiJson = {
@@ -34,6 +32,27 @@ export type AttEtcDailySaveApiJson = {
   status: number;
   data: unknown;
 };
+
+function pickErrorMessageFromUnknown(data: unknown): string | null {
+  if (typeof data === "string" && data.trim().length > 0) {
+    return data.trim();
+  }
+
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+
+  const record = data as Record<string, unknown>;
+  const preferredKeys = ["error", "message", "MSG", "msg", "raw"];
+  for (const key of preferredKeys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
 
 function formatAttDate(workDate: string): string {
   return workDate.replace(/\D/g, "").slice(0, 8);
@@ -70,12 +89,11 @@ export function buildAttEtcDailySaveBody(
     p_dinner_yn: values.dinner,
     p_dpt_work: values.department.trim(),
     p_user_id: ATT_ETC_DAILY_SAVE_USER_ID,
+    p_file_name: fileInfo
+      ? encodeAspUtf8JsonField(fileInfo.file_name)
+      : "",
+    p_file_path: fileInfo ? fileInfo.file_path.trim() : "",
   };
-
-  if (fileInfo) {
-    body.p_file_name = encodeAspUtf8JsonField(fileInfo.file_name);
-    body.p_file_path = fileInfo.file_path.trim();
-  }
 
   return body;
 }
@@ -97,6 +115,13 @@ export async function postAttEtcDailySave(
 
   if (isAspProxyError(proxy)) {
     return { error: proxy.error };
+  }
+
+  if (!proxy.ok) {
+    const message =
+      pickErrorMessageFromUnknown(proxy.data) ??
+      `근태 데이터 전송에 실패했습니다. (HTTP ${proxy.status})`;
+    return { error: message };
   }
 
   return {

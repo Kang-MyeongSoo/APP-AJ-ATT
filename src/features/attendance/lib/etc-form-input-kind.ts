@@ -60,7 +60,16 @@ export function parseEtcAttr2Options(c_attr2: string): Array<{
 
 export function isNightShift(shift: string): boolean {
   const v = shift.trim().toLowerCase();
-  return v === "night" || v === "n";
+  if (v === "night" || v === "n" || v === "2") return true;
+  if (v.includes("야간") || v.includes("ноч")) return true;
+  return false;
+}
+
+export function isDayShift(shift: string): boolean {
+  const v = shift.trim().toLowerCase();
+  if (v === "day" || v === "d" || v === "1") return true;
+  if (v.includes("주간") || v.includes("днев")) return true;
+  return false;
 }
 
 export type WorkInOutKind = "in" | "out";
@@ -228,6 +237,10 @@ export function resolveWorkInOutKind(
   const label = matched?.label ?? trimmed;
   const value = matched?.value ?? trimmed;
   const text = `${label}${value}`.toLowerCase();
+
+  /** ATT_ETC_FORM 08 / `p_ter_mode` 저장값 (1=출근, 2=퇴근) */
+  if (value === "2") return "out";
+  if (value === "1") return "in";
 
   if (
     text.includes("퇴근") ||

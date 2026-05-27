@@ -47,6 +47,7 @@ export const useAttendanceFormFontScaleStore =
       {
         name: "attendance-form-font-scale",
         version: 1,
+        skipHydration: true,
         merge: (persisted, current) => {
           const p = persisted as Partial<AttendanceFormFontScaleState> | undefined;
           const scale =

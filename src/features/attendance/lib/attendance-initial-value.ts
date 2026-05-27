@@ -271,12 +271,25 @@ export function applyCaseWhenDrivenFormFields(
     value: AttendanceFormValues[keyof AttendanceFormValues],
     options?: { shouldValidate?: boolean },
   ) => void,
-  options?: { managedByWorkInOut?: boolean; managedLiveDate?: boolean },
+  options?: {
+    managedByWorkInOut?: boolean;
+    managedLiveDate?: boolean;
+    /**
+     * 07(주간/야간)은 CASE WHEN 자동 반영 제외 (기본 true).
+     * 출퇴근 등 다른 필드와 연동해 바뀌지 않음 — 사용자·콤보 초기값만.
+     */
+    managedShift?: boolean;
+  },
 ) {
+  const managedShift = options?.managedShift ?? true;
+
   for (const [code, row] of rowsByCode) {
     const init = row.c_attr3?.trim() ?? "";
     if (!isCaseWhenInitialValue(init)) continue;
     if (options?.managedLiveDate && code === "06") {
+      continue;
+    }
+    if (managedShift && code === "07") {
       continue;
     }
     if (
@@ -423,6 +436,8 @@ export function applyCaseWhenDrivenValues(
   for (const [code, row] of rowsByCode) {
     const init = row.c_attr3?.trim() ?? "";
     if (!isCaseWhenInitialValue(init)) continue;
+    /** 주간/야간은 출퇴근 CASE WHEN과 무관 — 콤보·고정 초기값만 */
+    if (code === "07") continue;
 
     const kind = normalizeEtcInputKind(row.c_attr1);
     const resolved = resolveEtcAttr3Initial(init, fieldValuesByCode, {

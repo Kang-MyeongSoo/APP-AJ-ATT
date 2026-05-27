@@ -22,6 +22,7 @@ export function ResultMessageDialog({
   if (!open) return null;
 
   const isSuccess = tone === "success";
+  const hasRawPayload = message.includes("【수신 내용】");
 
   return (
     <div
@@ -40,7 +41,12 @@ export function ResultMessageDialog({
         >
           {title}
         </h2>
-        <p className="mt-3 whitespace-pre-wrap text-base leading-relaxed text-zinc-800">
+        <p
+          className={cn(
+            "mt-3 max-h-[min(52vh,26rem)] overflow-y-auto whitespace-pre-wrap break-words leading-relaxed text-zinc-800",
+            hasRawPayload ? "font-mono text-sm" : "text-base",
+          )}
+        >
           {message}
         </p>
         <div className="mt-5 flex justify-end">

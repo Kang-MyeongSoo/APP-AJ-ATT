@@ -1,5 +1,7 @@
 "use client";
 
+import { CameraActionFooterNotice } from "@/components/camera-action-footer-notice";
+import { CameraActionFooterTextEditor } from "@/components/camera-action-footer-text-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +16,13 @@ import {
   type AttendanceFormTexts,
 } from "@/features/attendance/lib/attendance-form-texts";
 import { useToast } from "@/hooks/use-toast";
+import {
+  defaultCameraActionFooterTexts,
+  parseCameraActionFooterTexts,
+  CAMERA_ACTION_FOOTER_TEXTS_STORAGE_KEY,
+  writeCameraActionFooterTexts,
+  type CameraActionFooterTexts,
+} from "@/lib/camera-action-footer-texts";
 import {
   CAMERA_PREVIEW_WIDTH_DEFAULT,
   CAMERA_PREVIEW_WIDTH_MAX,
@@ -65,7 +74,11 @@ function CameraPreviewSizeBox({ width }: { width: number }) {
   );
 }
 
-type SettingsMenu = "formTitle" | "serverConnection" | "cameraViewSize";
+type SettingsMenu =
+  | "formTitle"
+  | "serverConnection"
+  | "cameraViewSize"
+  | "cameraActionFooter";
 
 type FormTitleSubView = "template" | "editForm";
 
@@ -83,6 +96,8 @@ export default function SettingsPage() {
   const [cameraPreviewWidth, setCameraPreviewWidth] = useState(
     CAMERA_PREVIEW_WIDTH_DEFAULT,
   );
+  const [cameraActionFooterTexts, setCameraActionFooterTexts] =
+    useState<CameraActionFooterTexts>(defaultCameraActionFooterTexts);
 
   useEffect(() => {
     setIsAdminSession(hasSettingsAdminSession());
@@ -90,6 +105,10 @@ export default function SettingsPage() {
       window.localStorage.getItem(ATTENDANCE_FORM_TEXTS_STORAGE_KEY),
     );
     if (parsed) setFormTexts(parsed);
+    const footerParsed = parseCameraActionFooterTexts(
+      window.localStorage.getItem(CAMERA_ACTION_FOOTER_TEXTS_STORAGE_KEY),
+    );
+    if (footerParsed) setCameraActionFooterTexts(footerParsed);
     setServerBaseUrl(readServerBaseUrl());
     setCameraPreviewWidth(readCameraPreviewWidth());
   }, []);
@@ -134,6 +153,12 @@ export default function SettingsPage() {
     toast({
       description: `카메라 화면 크기를 ${normalized}px로 저장했습니다.`,
     });
+  };
+
+  const handleSaveCameraActionFooterTexts = () => {
+    const saved = writeCameraActionFooterTexts(cameraActionFooterTexts);
+    setCameraActionFooterTexts(saved);
+    toast({ description: "안내 문구를 저장했습니다." });
   };
 
   const editableKeys = new Set<keyof AttendanceFormTexts>(
@@ -181,6 +206,16 @@ export default function SettingsPage() {
                 onClick={() => setSelectedMenu("cameraViewSize")}
               >
                 카메라 화면 크기
+              </Button>
+              <Button
+                type="button"
+                variant={
+                  selectedMenu === "cameraActionFooter" ? "default" : "ghost"
+                }
+                className="w-full justify-start rounded-lg"
+                onClick={() => setSelectedMenu("cameraActionFooter")}
+              >
+                안내 문구
               </Button>
               {isAdminSession ? (
                 <Button
@@ -290,6 +325,63 @@ export default function SettingsPage() {
                     <Button type="button" onClick={handleSaveServerBaseUrl}>
                       저장
                     </Button>
+                  </div>
+                </div>
+              )}
+
+              {selectedMenu === "cameraActionFooter" && (
+                <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-lg font-semibold text-zinc-900">
+                        안내 문구
+                      </h2>
+                      <p className="mt-1 text-sm text-zinc-600">
+                        홈 화면의 촬영·카메라 다시 열기·전송 버튼 아래에 표시할
+                        안내 문구입니다. 굵게·색상·글자 크기 서식을 적용할 수
+                        있습니다.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      className="shrink-0"
+                      onClick={handleSaveCameraActionFooterTexts}
+                    >
+                      저장
+                    </Button>
+                  </div>
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <CameraActionFooterTextEditor
+                      id="camera-footer-ko"
+                      label="한글"
+                      value={cameraActionFooterTexts.bodyKo}
+                      onChange={(bodyKo) =>
+                        setCameraActionFooterTexts((prev) => ({
+                          ...prev,
+                          bodyKo,
+                        }))
+                      }
+                      placeholder="예: 사진을 **촬영**한 후 [color=#dc2626]전송[/color] 버튼을 눌러 주세요."
+                    />
+                    <CameraActionFooterTextEditor
+                      id="camera-footer-en"
+                      label="English"
+                      value={cameraActionFooterTexts.bodyEn}
+                      onChange={(bodyEn) =>
+                        setCameraActionFooterTexts((prev) => ({
+                          ...prev,
+                          bodyEn,
+                        }))
+                      }
+                      placeholder="e.g. Please [size=lg]take a photo[/size], then press **Send**."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-zinc-900">미리보기</p>
+                    <CameraActionFooterNotice
+                      texts={cameraActionFooterTexts}
+                      emptyHint="저장된 안내 문구가 없습니다. 위에서 입력 후 저장하세요."
+                    />
                   </div>
                 </div>
               )}

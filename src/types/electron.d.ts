@@ -9,6 +9,8 @@ interface SaveImageResult {
 }
 
 interface ElectronAPI {
+  /** `npm run electron:dev` 실행 시에만 true */
+  isDevSession?: boolean;
   selectSaveDirectory: () => Promise<string | null>;
   saveImage: (
     base64: string,
