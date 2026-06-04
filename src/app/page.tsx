@@ -38,8 +38,7 @@ import {
   isR2FlagSuccess,
   type R2FlagMsgDialogContent,
 } from "@/lib/r2-flag-msg-response";
-import { verifyMobileLogin } from "@/lib/mobile-login-api";
-import { ServerBaseUrlSetupScreen } from "@/features/settings/components/server-base-url-setup-screen";
+import { verifySettingsLogin } from "@/lib/mobile-login-api";
 import { readServerBaseUrl } from "@/lib/server-connection-storage";
 import { writeSettingsSessionLoginId } from "@/lib/settings-session-storage";
 import { Camera, CameraOff, ImagePlus, Send, Settings } from "lucide-react";
@@ -177,7 +176,6 @@ export default function Home() {
   );
   const [cameraActionFooterTexts, setCameraActionFooterTexts] =
     useState<CameraActionFooterTexts>(defaultCameraActionFooterTexts);
-  const [serverBaseUrlReady, setServerBaseUrlReady] = useState(false);
   const isClientHydrated = useClientHydrated();
 
   useEffect(() => {
@@ -192,7 +190,7 @@ export default function Home() {
     );
     if (footerParsed) setCameraActionFooterTexts(footerParsed);
     setCameraPreviewWidth(readCameraPreviewWidth());
-    setServerBaseUrlReady(readServerBaseUrl().trim().length > 0);
+    readServerBaseUrl();
   }, [isClientHydrated]);
 
   useEffect(() => {
@@ -417,7 +415,7 @@ export default function Home() {
 
     setSettingsLoginSubmitting(true);
     try {
-      const result = await verifyMobileLogin(
+      const result = await verifySettingsLogin(
         serverBaseUrl,
         settingsLoginId,
         settingsPassword,
@@ -443,12 +441,6 @@ export default function Home() {
 
   if (!isClientHydrated) {
     return <div className="h-screen bg-white" aria-busy="true" />;
-  }
-
-  if (!serverBaseUrlReady) {
-    return (
-      <ServerBaseUrlSetupScreen onSaved={() => setServerBaseUrlReady(true)} />
-    );
   }
 
   return (

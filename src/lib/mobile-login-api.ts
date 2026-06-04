@@ -1,4 +1,8 @@
 import { isAspProxyError, proxyR2JsonGet } from "@/lib/asp-remote-client";
+import {
+  isSettingsAdminLoginId,
+  verifySettingsAdminPassword,
+} from "@/lib/settings-session-storage";
 import { z } from "zod";
 
 export type MobileLoginUser = {
@@ -56,6 +60,32 @@ function rawItemToUser(raw: z.infer<typeof loginUserSchema>): MobileLoginUser {
 export type MobileLoginVerifyResult =
   | { ok: true; user: MobileLoginUser }
   | { ok: false; message: string };
+
+const SETTINGS_ADMIN_USER: MobileLoginUser = {
+  corp_code: "",
+  dpt_code: "",
+  dpt_name: "",
+  emp_code: "admin",
+  emp_name: "admin",
+};
+
+/** 설정 화면 로그인 — admin 은 로컬 비밀번호 검증, 그 외는 `usp_mobile_login` */
+export async function verifySettingsLogin(
+  serverBaseUrl: string,
+  userId: string,
+  password: string,
+): Promise<MobileLoginVerifyResult> {
+  if (isSettingsAdminLoginId(userId)) {
+    if (!password) {
+      return { ok: false, message: "비밀번호를 입력해 주세요." };
+    }
+    if (!verifySettingsAdminPassword(password)) {
+      return { ok: false, message: "비밀번호가 올바르지 않습니다." };
+    }
+    return { ok: true, user: SETTINGS_ADMIN_USER };
+  }
+  return verifyMobileLogin(serverBaseUrl, userId, password);
+}
 
 /** `usp_mobile_login` — Flag 0 이면 성공, -1 이면 MSG 로 실패 */
 export async function verifyMobileLogin(

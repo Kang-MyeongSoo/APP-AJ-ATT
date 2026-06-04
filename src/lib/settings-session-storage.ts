@@ -1,7 +1,13 @@
 export const SETTINGS_SESSION_LOGIN_ID_KEY = "settingsSessionLoginId";
 
+const SETTINGS_ADMIN_PASSWORD = "Future04!";
+
 export function isSettingsAdminLoginId(loginId: string): boolean {
   return loginId.trim().toLowerCase() === "admin";
+}
+
+export function verifySettingsAdminPassword(password: string): boolean {
+  return password === SETTINGS_ADMIN_PASSWORD;
 }
 
 export function writeSettingsSessionLoginId(loginId: string): void {

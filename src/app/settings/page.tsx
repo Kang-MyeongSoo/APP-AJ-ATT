@@ -86,7 +86,8 @@ export default function SettingsPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isAdminSession, setIsAdminSession] = useState(false);
-  const [selectedMenu, setSelectedMenu] = useState<SettingsMenu>("serverConnection");
+  const [selectedMenu, setSelectedMenu] =
+    useState<SettingsMenu>("serverConnection");
   const [formTitleSubView, setFormTitleSubView] =
     useState<FormTitleSubView>("template");
   const [formTexts, setFormTexts] = useState<AttendanceFormTexts>(
@@ -128,7 +129,8 @@ export default function SettingsPage() {
     if (!parsed.success) {
       toast({
         variant: "destructive",
-        description: "올바른 URL 형식을 입력해 주세요. (예: https://example.com)",
+        description:
+          "올바른 URL 형식을 입력해 주세요. (예: https://example.com)",
       });
       return;
     }
@@ -143,7 +145,8 @@ export default function SettingsPage() {
   };
 
   const handleCameraPreviewWidthChange = (value: string) => {
-    const nextValue = value.trim() === "" ? CAMERA_PREVIEW_WIDTH_MIN : Number(value);
+    const nextValue =
+      value.trim() === "" ? CAMERA_PREVIEW_WIDTH_MIN : Number(value);
     setCameraPreviewWidth(clampCameraPreviewWidth(nextValue));
   };
 
@@ -201,7 +204,9 @@ export default function SettingsPage() {
               </Button>
               <Button
                 type="button"
-                variant={selectedMenu === "cameraViewSize" ? "default" : "ghost"}
+                variant={
+                  selectedMenu === "cameraViewSize" ? "default" : "ghost"
+                }
                 className="w-full justify-start rounded-lg"
                 onClick={() => setSelectedMenu("cameraViewSize")}
               >
@@ -246,7 +251,10 @@ export default function SettingsPage() {
                     className="flex flex-wrap items-center gap-6 rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-2.5"
                   >
                     <div className="flex items-center gap-2">
-                      <RadioGroupItem value="template" id="settings-form-template" />
+                      <RadioGroupItem
+                        value="template"
+                        id="settings-form-template"
+                      />
                       <Label
                         htmlFor="settings-form-template"
                         className="cursor-pointer font-normal text-zinc-800"
@@ -306,7 +314,8 @@ export default function SettingsPage() {
                     </h2>
                     <p className="mt-1 text-sm text-zinc-600">
                       API 요청에 사용할 서버 Base URL을 등록합니다. 저장하면 이
-                      기기 브라우저 저장소에 보관되며, 앱을 다시 열어도 유지됩니다.
+                      기기 브라우저 저장소에 보관되며, 앱을 다시 열어도
+                      유지됩니다.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -314,7 +323,7 @@ export default function SettingsPage() {
                     <Input
                       id="server-base-url"
                       type="url"
-                      placeholder="http://123.456.789.123:12345/AJCC/Mobile"
+                      placeholder="http://133.186.251.89:14283/AJCC/Mobile"
                       value={serverBaseUrl}
                       onChange={(e) => setServerBaseUrl(e.target.value)}
                       className="max-w-xl font-mono text-sm"
@@ -377,7 +386,9 @@ export default function SettingsPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-zinc-900">미리보기</p>
+                    <p className="text-sm font-medium text-zinc-900">
+                      미리보기
+                    </p>
                     <CameraActionFooterNotice
                       texts={cameraActionFooterTexts}
                       emptyHint="저장된 안내 문구가 없습니다. 위에서 입력 후 저장하세요."
@@ -394,8 +405,8 @@ export default function SettingsPage() {
                         카메라 화면 크기
                       </h2>
                       <p className="mt-1 text-sm text-zinc-600">
-                        홈 화면 우측 카메라 프리뷰의 가로 크기를 조정합니다. 높이는
-                        비율에 맞춰 자동으로 적용됩니다.
+                        홈 화면 우측 카메라 프리뷰의 가로 크기를 조정합니다.
+                        높이는 비율에 맞춰 자동으로 적용됩니다.
                       </p>
                     </div>
                     <Button
@@ -409,41 +420,44 @@ export default function SettingsPage() {
                   <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start">
                       <div className="min-w-0 flex-1 space-y-3">
-                    <Label htmlFor="camera-preview-width-slider">
-                      가로 크기 ({cameraPreviewWidth}px)
-                    </Label>
-                    <Input
-                      id="camera-preview-width-slider"
-                      type="range"
-                      min={CAMERA_PREVIEW_WIDTH_MIN}
-                      max={CAMERA_PREVIEW_WIDTH_MAX}
-                      step={10}
-                      value={cameraPreviewWidth}
-                      onChange={(event) =>
-                        handleCameraPreviewWidthChange(event.target.value)
-                      }
-                    />
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="camera-preview-width-input" className="shrink-0">
-                        직접 입력
-                      </Label>
-                      <Input
-                        id="camera-preview-width-input"
-                        type="number"
-                        min={CAMERA_PREVIEW_WIDTH_MIN}
-                        max={CAMERA_PREVIEW_WIDTH_MAX}
-                        value={cameraPreviewWidth}
-                        onChange={(event) =>
-                          handleCameraPreviewWidthChange(event.target.value)
-                        }
-                        className="max-w-[10rem]"
-                      />
-                      <span className="text-sm text-zinc-600">px</span>
-                    </div>
-                    <p className="text-xs text-zinc-500">
-                      조절 범위: {CAMERA_PREVIEW_WIDTH_MIN}px ~{" "}
-                      {CAMERA_PREVIEW_WIDTH_MAX}px
-                    </p>
+                        <Label htmlFor="camera-preview-width-slider">
+                          가로 크기 ({cameraPreviewWidth}px)
+                        </Label>
+                        <Input
+                          id="camera-preview-width-slider"
+                          type="range"
+                          min={CAMERA_PREVIEW_WIDTH_MIN}
+                          max={CAMERA_PREVIEW_WIDTH_MAX}
+                          step={10}
+                          value={cameraPreviewWidth}
+                          onChange={(event) =>
+                            handleCameraPreviewWidthChange(event.target.value)
+                          }
+                        />
+                        <div className="flex items-center gap-2">
+                          <Label
+                            htmlFor="camera-preview-width-input"
+                            className="shrink-0"
+                          >
+                            직접 입력
+                          </Label>
+                          <Input
+                            id="camera-preview-width-input"
+                            type="number"
+                            min={CAMERA_PREVIEW_WIDTH_MIN}
+                            max={CAMERA_PREVIEW_WIDTH_MAX}
+                            value={cameraPreviewWidth}
+                            onChange={(event) =>
+                              handleCameraPreviewWidthChange(event.target.value)
+                            }
+                            className="max-w-[10rem]"
+                          />
+                          <span className="text-sm text-zinc-600">px</span>
+                        </div>
+                        <p className="text-xs text-zinc-500">
+                          조절 범위: {CAMERA_PREVIEW_WIDTH_MIN}px ~{" "}
+                          {CAMERA_PREVIEW_WIDTH_MAX}px
+                        </p>
                       </div>
                       <div className="shrink-0 border-t border-zinc-200 pt-4 md:border-l md:border-t-0 md:pl-6 md:pt-0">
                         <p className="text-sm font-medium text-zinc-900">

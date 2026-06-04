@@ -69,7 +69,7 @@ export function ServerBaseUrlSetupScreen({
           <Input
             id="setup-server-base-url"
             type="url"
-            placeholder="http://123.456.789.123:12345/AJCC/Mobile"
+            placeholder="http://133.186.251.89:14283/AJCC/Mobile"
             value={serverBaseUrl}
             onChange={(event) => setServerBaseUrl(event.target.value)}
             className="font-mono text-sm"
