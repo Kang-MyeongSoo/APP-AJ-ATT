@@ -18,6 +18,9 @@ const {
   proxyAttImageUpload,
 } = require('./asp-proxy');
 
+const { version: appVersion } = require('../package.json');
+const APP_WINDOW_TITLE = `일용직 근태관리 v${appVersion}`;
+
 const NEXT_DEV_PORT = 3000;
 /** `localhost` 대신 127.0.0.1: Turbopack/Webpack·IPv6/캐시 꼬임을 줄이기 위함 */
 const NEXT_DEV_ORIGIN = `http://127.0.0.1:${NEXT_DEV_PORT}`;
@@ -186,7 +189,7 @@ async function loadWindowContent() {
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
-    title: '일용직 근태관리',
+    title: APP_WINDOW_TITLE,
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
     resizable: true,
@@ -199,6 +202,12 @@ async function createWindow() {
   });
 
   await loadWindowContent();
+
+  mainWindow.webContents.on('page-title-updated', () => {
+    if (mainWindow) {
+      mainWindow.setTitle(APP_WINDOW_TITLE);
+    }
+  });
 
   if (process.env.ELECTRON_DEV_TOOLS === 'true') {
     mainWindow.webContents.openDevTools({ mode: 'detach' });

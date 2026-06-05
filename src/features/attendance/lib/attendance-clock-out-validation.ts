@@ -1,3 +1,4 @@
+import { fetchClockInDepartmentWork } from "@/features/attendance/lib/attendance-clock-in-dpt-work-api";
 import { validateMobileAttendanceExists } from "@/features/attendance/lib/attendance-validate-exists-api";
 import { resolveWorkInOutKind } from "@/features/attendance/lib/etc-form-input-kind";
 import type { R2FlagMsgDialogContent } from "@/lib/r2-flag-msg-response";
@@ -10,7 +11,7 @@ export const CLOCK_OUT_NO_CHECK_IN_DIALOG: R2FlagMsgDialogContent = {
 };
 
 export type ClockOutCheckInValidationResult =
-  | { ok: true }
+  | { ok: true; dptWork?: string }
   | { ok: false; dialog: R2FlagMsgDialogContent }
   | { ok: false; error: string };
 
@@ -46,5 +47,14 @@ export async function ensureClockInExistsForClockOut(params: {
     return { ok: false, dialog: CLOCK_OUT_NO_CHECK_IN_DIALOG };
   }
 
-  return { ok: true };
+  const dptResult = await fetchClockInDepartmentWork(
+    params.serverBaseUrl,
+    params.regNumber,
+    params.workDate,
+  );
+
+  return {
+    ok: true,
+    dptWork: dptResult.ok ? dptResult.dptWork : undefined,
+  };
 }

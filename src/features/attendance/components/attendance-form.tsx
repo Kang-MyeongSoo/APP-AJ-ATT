@@ -451,9 +451,15 @@ export const AttendanceForm = forwardRef<
               : "출근 확인에 실패했습니다.",
         };
       }
+
+      const dptWork = clockOutCheck.dptWork?.trim();
+      if (dptWork) {
+        setValue("department", dptWork, { shouldValidate: true });
+      }
+
       return null;
     },
-    [workInOutValidationOptions],
+    [setValue, workInOutValidationOptions],
   );
 
   const runClockOutPresenceCheck = useCallback(
@@ -472,7 +478,13 @@ export const AttendanceForm = forwardRef<
         workInOutOptions: workInOutValidationOptions,
       });
 
-      if (clockOutCheck.ok) return;
+      if (clockOutCheck.ok) {
+        const dptWork = clockOutCheck.dptWork?.trim();
+        if (dptWork) {
+          setValue("department", dptWork, { shouldValidate: true });
+        }
+        return;
+      }
 
       if ("dialog" in clockOutCheck) {
         onAttendanceAlert(clockOutCheck.dialog);
@@ -487,7 +499,7 @@ export const AttendanceForm = forwardRef<
         ),
       );
     },
-    [getValues, onAttendanceAlert, workInOutValidationOptions],
+    [getValues, onAttendanceAlert, setValue, workInOutValidationOptions],
   );
 
   useImperativeHandle(
@@ -584,6 +596,7 @@ export const AttendanceForm = forwardRef<
   });
 
   const handleReloadAttendanceMaster = () => {
+    resetAfterSuccessfulSubmit();
     void Promise.all([
       etcFormQuery.refetch(),
       deptQuery.refetch(),
