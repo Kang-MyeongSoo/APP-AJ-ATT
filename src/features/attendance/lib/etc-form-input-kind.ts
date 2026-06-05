@@ -237,7 +237,7 @@ export function applyCurrentWorkDateSync({
 /** ATT_ETC_FORM 08 `c_attr2` 옵션·저장값으로 출근/퇴근 구분 */
 export function resolveWorkInOutKind(
   workInOut: string,
-  options: Array<{ label: string; value: string }>,
+  options: ReadonlyArray<{ label: string; value: string }>,
 ): WorkInOutKind | null {
   const trimmed = workInOut.trim();
   if (!trimmed) return null;

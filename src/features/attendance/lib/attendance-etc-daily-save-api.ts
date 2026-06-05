@@ -74,8 +74,7 @@ function resolveDinnerYnForSave(
   values: AttendanceFormValues,
   workInOutOptions: ReadonlyArray<{ label: string; value: string }>,
 ): string {
-  const opts = [...workInOutOptions];
-  if (resolveWorkInOutKind(values.workInOut, opts) !== "out") {
+  if (resolveWorkInOutKind(values.workInOut, workInOutOptions) !== "out") {
     return "";
   }
   return values.dinner.trim().toUpperCase() === "Y" ? "Y" : "N";
