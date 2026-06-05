@@ -75,7 +75,10 @@ function parseCompactCaseWhenInitialValue(
   const whens: CaseWhenClause[] = [];
   let elseValue = "";
 
-  for (const part of body.split(";").map((p) => p.trim()).filter(Boolean)) {
+  for (const part of body
+    .split(";")
+    .map((p) => p.trim())
+    .filter(Boolean)) {
     if (part.startsWith("?=")) {
       elseValue = part.slice(2).trim();
       continue;
@@ -96,7 +99,9 @@ function parseCompactCaseWhenInitialValue(
 
 export function isCaseWhenInitialValue(c_attr3: string): boolean {
   const trimmed = c_attr3.trim();
-  return CASE_WHEN_PREFIX_RE.test(trimmed) || isCompactCaseWhenInitialValue(trimmed);
+  return (
+    CASE_WHEN_PREFIX_RE.test(trimmed) || isCompactCaseWhenInitialValue(trimmed)
+  );
 }
 
 export function parseCaseWhenInitialValue(
@@ -470,8 +475,7 @@ export function resolveEtcComboInitialValue(
   if (ci) return ci.value;
 
   const byLabel = opts.find(
-    (o) =>
-      o.label === raw || o.label.toLowerCase() === raw.toLowerCase(),
+    (o) => o.label === raw || o.label.toLowerCase() === raw.toLowerCase(),
   );
   return byLabel?.value;
 }
@@ -665,7 +669,7 @@ export function buildAttendanceFormResetValues(
     values = { ...values, fullName: "-" };
   }
   if (!visible.has("04")) {
-    values = { ...values, phone: "01000000000" };
+    values = { ...values, phone: "" };
   }
   if (!visible.has("05") && !values.gender.trim()) {
     values = { ...values, gender: "M" };

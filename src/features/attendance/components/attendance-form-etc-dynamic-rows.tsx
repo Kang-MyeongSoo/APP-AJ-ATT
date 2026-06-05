@@ -21,11 +21,15 @@ import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-
 import { OvertimeMinutesField } from "@/features/attendance/components/overtime-minutes-field";
 import { useEtcAttr2Options } from "@/features/attendance/hooks/use-etc-attr2-options";
 import { cn } from "@/lib/utils";
-import { lockedFieldInputClass } from "@/features/attendance/lib/attendance-locked-field-input";
+import {
+  LOCKED_FIELD_INPUT_APPEARANCE,
+  lockedFieldInputClass,
+} from "@/features/attendance/lib/attendance-locked-field-input";
 import { getCaseWhenInitialValueIssue } from "@/features/attendance/lib/attendance-initial-value";
 import { RegNumberMaskedInput } from "@/features/attendance/components/reg-number-masked-input";
 import { WorkDateDisplay } from "@/features/attendance/components/work-date-display";
 import {
+  isDinnerFieldEnabled,
   isPeerWorkTimeInputDisabled,
   isWorkTimeFormatHint,
   normalizeEtcInputKind,
@@ -144,10 +148,11 @@ function EtcFieldMiddle({
   };
 }) {
   const kind = normalizeEtcInputKind(row.c_attr1);
+  const dinnerFieldDisabled =
+    code === "12" && !isDinnerFieldEnabled(extras.workInOutKind);
   const handleRegNumberKeyDown: KeyboardEventHandler<HTMLElement> | undefined =
     code === "01" && extras.onRegNumberKeyDown
-      ? (event) =>
-          extras.onRegNumberKeyDown?.(event, String(field.value ?? ""))
+      ? (event) => extras.onRegNumberKeyDown?.(event, String(field.value ?? ""))
       : undefined;
 
   const regNumberInput = () => (
@@ -166,8 +171,7 @@ function EtcFieldMiddle({
   const isEndField = code === "10";
   const timeInputDisabled =
     (isStartField || isEndField) &&
-    ((extras.workTimeAutoOnly &&
-      !(isEndField && extras.allowDevEndTimeEdit)) ||
+    ((extras.workTimeAutoOnly && !(isEndField && extras.allowDevEndTimeEdit)) ||
       (isStartField &&
         isPeerWorkTimeInputDisabled(
           "start",
@@ -211,16 +215,13 @@ function EtcFieldMiddle({
         field.onChange(exact.value);
         return;
       }
-      const ci = opts.find(
-        (o) => o.value.toLowerCase() === init.toLowerCase(),
-      );
+      const ci = opts.find((o) => o.value.toLowerCase() === init.toLowerCase());
       if (ci) {
         field.onChange(ci.value);
         return;
       }
       const byLabel = opts.find(
-        (o) =>
-          o.label === init || o.label.toLowerCase() === init.toLowerCase(),
+        (o) => o.label === init || o.label.toLowerCase() === init.toLowerCase(),
       );
       if (byLabel) {
         field.onChange(byLabel.value);
@@ -257,23 +258,35 @@ function EtcFieldMiddle({
     return null;
   };
 
-  const radioFromMaster = (pairs: Array<{ label: string; value: string }>) => (
+  const radioFromMaster = (
+    pairs: Array<{ label: string; value: string }>,
+    disabled = false,
+  ) => (
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={radioGroupClass(pairs.length)}
+      aria-disabled={disabled}
+      className={cn(
+        radioGroupClass(pairs.length),
+        disabled && LOCKED_FIELD_INPUT_APPEARANCE,
+      )}
     >
       {pairs.map((opt, idx) => (
         <label
           key={opt.value}
-          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
+          className={cn(
+            "flex items-center gap-2 text-sm text-zinc-900",
+            disabled ? "cursor-not-allowed" : "cursor-pointer",
+          )}
         >
           <input
             type="radio"
             name={field.name}
             value={opt.value}
             checked={String(field.value) === opt.value}
+            disabled={disabled}
             onChange={() => {
+              if (disabled) return;
               field.onChange(opt.value);
               if (code === "08") {
                 extras.onWorkInOutSelected?.(opt.value);
@@ -281,7 +294,7 @@ function EtcFieldMiddle({
             }}
             onBlur={field.onBlur}
             ref={idx === 0 ? field.ref : undefined}
-            className="h-4 w-4 accent-zinc-900"
+            className="h-4 w-4 accent-zinc-900 disabled:cursor-not-allowed"
           />
           {opt.label}
         </label>
@@ -294,28 +307,36 @@ function EtcFieldMiddle({
       String(field.value ?? ""),
       opts,
     );
+    const comboDisabled = code === "12" && dinnerFieldDisabled;
     return (
-    <Select
-      onValueChange={(v) => {
-        const next = valueAsNumber ? Number(v) : v;
-        field.onChange(next);
-        if (code === "08") {
-          extras.onWorkInOutSelected?.(String(v));
-        }
-      }}
-      value={selectValue}
-    >
-      <SelectTrigger className={selectTriggerClass}>
-        <SelectValue placeholder="선택" />
-      </SelectTrigger>
-      <SelectContent className={selectContentClass}>
-        {opts.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value}>
-            {opt.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      <Select
+        disabled={comboDisabled}
+        onValueChange={(v) => {
+          if (comboDisabled) return;
+          const next = valueAsNumber ? Number(v) : v;
+          field.onChange(next);
+          if (code === "08") {
+            extras.onWorkInOutSelected?.(String(v));
+          }
+        }}
+        value={selectValue}
+      >
+        <SelectTrigger
+          className={cn(
+            selectTriggerClass,
+            comboDisabled && LOCKED_FIELD_INPUT_APPEARANCE,
+          )}
+        >
+          <SelectValue placeholder="선택" />
+        </SelectTrigger>
+        <SelectContent className={selectContentClass}>
+          {opts.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     );
   };
 
@@ -422,7 +443,7 @@ function EtcFieldMiddle({
         </span>
       );
     }
-    return radioFromMaster(opts);
+    return radioFromMaster(opts, dinnerFieldDisabled);
   }
 
   if (kind === "date") {
@@ -506,11 +527,7 @@ function EtcFieldMiddle({
       return regNumberInput();
     case "02":
       return (
-        <Input
-          {...field}
-          className={inputClass}
-          autoComplete="organization"
-        />
+        <Input {...field} className={inputClass} autoComplete="organization" />
       );
     case "03":
       return (
@@ -547,38 +564,12 @@ function EtcFieldMiddle({
     case "10":
       return timeLooseInput();
     case "12":
-      return (
-        <div
-          role="radiogroup"
-          aria-label={ariaLabel}
-          className="flex items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
-        >
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
-            <input
-              type="radio"
-              name={field.name}
-              value="Y"
-              checked={field.value === "Y"}
-              onChange={field.onChange}
-              onBlur={field.onBlur}
-              ref={field.ref}
-              className="h-4 w-4 accent-zinc-900"
-            />
-            Y
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
-            <input
-              type="radio"
-              name={field.name}
-              value="N"
-              checked={field.value === "N"}
-              onChange={field.onChange}
-              onBlur={field.onBlur}
-              className="h-4 w-4 accent-zinc-900"
-            />
-            N
-          </label>
-        </div>
+      return radioFromMaster(
+        [
+          { label: "Y", value: "Y" },
+          { label: "N", value: "N" },
+        ],
+        dinnerFieldDisabled,
       );
     case "13": {
       const { serverBaseUrl, deptQuery, departmentOptions } = extras;
@@ -779,7 +770,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">이름</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="03" row={row} field={field} ariaLabel="이름" extras={extras} />
+                            <EtcFieldMiddle
+                              code="03"
+                              row={row}
+                              field={field}
+                              ariaLabel="이름"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -809,7 +806,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">휴대폰</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="04" row={row} field={field} ariaLabel="휴대폰" extras={extras} />
+                            <EtcFieldMiddle
+                              code="04"
+                              row={row}
+                              field={field}
+                              ariaLabel="휴대폰"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -839,7 +842,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">성별</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="05" row={row} field={field} ariaLabel="성별" extras={extras} />
+                            <EtcFieldMiddle
+                              code="05"
+                              row={row}
+                              field={field}
+                              ariaLabel="성별"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -869,7 +878,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">날짜</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="06" row={row} field={field} ariaLabel="날짜" extras={extras} />
+                            <EtcFieldMiddle
+                              code="06"
+                              row={row}
+                              field={field}
+                              ariaLabel="날짜"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -895,7 +910,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">주간/야간</FormLabel>
                           <FormControl data-attendance-focus="shift">
-                            <EtcFieldMiddle code="07" row={row} field={field} ariaLabel="주간/야간" extras={extras} />
+                            <EtcFieldMiddle
+                              code="07"
+                              row={row}
+                              field={field}
+                              ariaLabel="주간/야간"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -918,7 +939,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">출근/퇴근</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="08" row={row} field={field} ariaLabel="출근/퇴근" extras={extras} />
+                            <EtcFieldMiddle
+                              code="08"
+                              row={row}
+                              field={field}
+                              ariaLabel="출근/퇴근"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -939,7 +966,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">출근시간</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="09" row={row} field={field} ariaLabel="출근시간" extras={extras} />
+                            <EtcFieldMiddle
+                              code="09"
+                              row={row}
+                              field={field}
+                              ariaLabel="출근시간"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -969,7 +1002,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">퇴근시간</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="10" row={row} field={field} ariaLabel="퇴근시간" extras={extras} />
+                            <EtcFieldMiddle
+                              code="10"
+                              row={row}
+                              field={field}
+                              ariaLabel="퇴근시간"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -990,7 +1029,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">잔업시간</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="11" row={row} field={field} ariaLabel="잔업시간" extras={extras} />
+                            <EtcFieldMiddle
+                              code="11"
+                              row={row}
+                              field={field}
+                              ariaLabel="잔업시간"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -1020,7 +1065,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">석식여부</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="12" row={row} field={field} ariaLabel="석식여부" extras={extras} />
+                            <EtcFieldMiddle
+                              code="12"
+                              row={row}
+                              field={field}
+                              ariaLabel="석식여부"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>
@@ -1041,7 +1092,13 @@ export function AttendanceFormEtcDynamicRows({
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">근무부서</FormLabel>
                           <FormControl>
-                            <EtcFieldMiddle code="13" row={row} field={field} ariaLabel="근무부서" extras={extras} />
+                            <EtcFieldMiddle
+                              code="13"
+                              row={row}
+                              field={field}
+                              ariaLabel="근무부서"
+                              extras={extras}
+                            />
                           </FormControl>
                           <FormMessage className="text-xs sm:text-sm" />
                         </FormItem>

@@ -1,4 +1,5 @@
 import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
+import { resolveWorkInOutKind } from "@/features/attendance/lib/etc-form-input-kind";
 
 export const MAX_ATTENDANCE_FIELD_CODE = 13;
 
@@ -35,6 +36,40 @@ export function normalizeCaseWhenFieldCode(code: string): string {
     return code.trim();
   }
   return String(n).padStart(2, "0");
+}
+
+/** 서버 마스터 레이아웃 기준 04(휴대폰) 표시 여부. `null`이면 정적 양식(항목 표시). */
+export function isAttendancePhoneFieldVisible(
+  visibleFieldCodes: ReadonlySet<string> | null,
+): boolean {
+  return visibleFieldCodes === null || visibleFieldCodes.has("04");
+}
+
+export function validateAttendancePhoneWhenVisible(
+  values: AttendanceFormValues,
+  visibleFieldCodes: ReadonlySet<string> | null,
+): string | null {
+  if (!isAttendancePhoneFieldVisible(visibleFieldCodes)) return null;
+  if (!values.phone.trim()) {
+    return "휴대폰 번호를 입력해 주세요.";
+  }
+  return null;
+}
+
+/** 12번 표시 + 퇴근 선택 시 석식 Y/N 필수 */
+export function validateAttendanceDinnerWhenClockOut(
+  values: AttendanceFormValues,
+  workInOutOptions: ReadonlyArray<{ label: string; value: string }>,
+  visibleFieldCodes: ReadonlySet<string> | null,
+): string | null {
+  if (visibleFieldCodes !== null && !visibleFieldCodes.has("12")) return null;
+  if (resolveWorkInOutKind(values.workInOut, workInOutOptions) !== "out") {
+    return null;
+  }
+  if (values.dinner !== "Y" && values.dinner !== "N") {
+    return "석식여부를 선택해 주세요.";
+  }
+  return null;
 }
 
 export const ATTENDANCE_FIELD_CODE_TO_FORM_KEY: Record<

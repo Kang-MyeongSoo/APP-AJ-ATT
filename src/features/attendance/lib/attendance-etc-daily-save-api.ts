@@ -1,5 +1,6 @@
 import type { AttImageUploadFileInfo } from "@/features/attendance/lib/att-image-upload-api";
 import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
+import { resolveWorkInOutKind } from "@/features/attendance/lib/etc-form-input-kind";
 import { isAspProxyError, proxyAttEtcDailySave } from "@/lib/asp-remote-client";
 import { encodeAspUtf8JsonField } from "@/lib/legacy-asp-json-body";
 
@@ -69,16 +70,28 @@ function formatPhoneDigits(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
+function resolveDinnerYnForSave(
+  values: AttendanceFormValues,
+  workInOutOptions: ReadonlyArray<{ label: string; value: string }>,
+): string {
+  const opts = [...workInOutOptions];
+  if (resolveWorkInOutKind(values.workInOut, opts) !== "out") {
+    return "";
+  }
+  return values.dinner.trim().toUpperCase() === "Y" ? "Y" : "N";
+}
+
 export function buildAttEtcDailySaveBody(
   values: AttendanceFormValues,
   fileInfo?: AttImageUploadFileInfo,
+  workInOutOptions: ReadonlyArray<{ label: string; value: string }> = [],
 ): AttEtcDailySaveBody {
   const body: AttEtcDailySaveBody = {
     p_att_date: formatAttDate(values.workDate),
     p_etc_idno: values.regNumber.trim(),
     p_att_corp_code: values.companyName.trim(),
     p_etc_name: encodeAspUtf8JsonField(values.fullName),
-    p_cel_no: formatPhoneDigits(values.phone),
+    p_cel_no: formatPhoneDigits(values.phone.trim()),
     p_gender: values.gender.trim(),
     p_att_dn_flag: values.shift.trim(),
     p_work_in_out: values.workInOut.trim(),
@@ -86,7 +99,7 @@ export function buildAttEtcDailySaveBody(
     p_work_start: formatWorkTimeHm(values.startTime),
     p_work_end: formatWorkTimeHm(values.endTime),
     p_over_time: String(values.overtimeMinutes),
-    p_dinner_yn: values.dinner,
+    p_dinner_yn: resolveDinnerYnForSave(values, workInOutOptions),
     p_dpt_work: values.department.trim(),
     p_user_id: ATT_ETC_DAILY_SAVE_USER_ID,
     p_file_name: fileInfo
@@ -102,13 +115,14 @@ export async function postAttEtcDailySave(
   serverBaseUrl: string,
   values: AttendanceFormValues,
   fileInfo?: AttImageUploadFileInfo,
+  workInOutOptions: ReadonlyArray<{ label: string; value: string }> = [],
 ): Promise<AttEtcDailySaveApiJson | { error: string }> {
   const base = serverBaseUrl.trim();
   if (!base) {
     return { error: "설정에서 서버 연결 URL을 먼저 저장해 주세요." };
   }
 
-  const payload = buildAttEtcDailySaveBody(values, fileInfo);
+  const payload = buildAttEtcDailySaveBody(values, fileInfo, workInOutOptions);
   console.log("[att-etc-daily-save] IPC → ASP", payload);
 
   const proxy = await proxyAttEtcDailySave({ base, payload });

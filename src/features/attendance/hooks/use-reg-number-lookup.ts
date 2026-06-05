@@ -1,11 +1,15 @@
 "use client";
 
 import type { EtcFormMstRow } from "@/features/attendance/lib/attendance-etc-form-mst-api";
-import { focusAttendanceFormField } from "@/features/attendance/lib/attendance-form-focus";
-import { shouldHandleAttendanceEnterNavigation } from "@/features/attendance/lib/attendance-form-enter-navigation";
+import { scheduleFocusAttendanceFormField } from "@/features/attendance/lib/attendance-form-focus";
+import {
+  focusNextAttendanceField,
+  shouldHandleAttendanceEnterNavigation,
+} from "@/features/attendance/lib/attendance-form-enter-navigation";
 import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-form-schema";
 import { fetchHrmAttEtcInfo } from "@/features/attendance/lib/attendance-hrm-etc-info-api";
 import { normalizeAttendanceFieldCode } from "@/features/attendance/lib/attendance-field-codes";
+import { applyGenderFromRegNumber } from "@/features/attendance/lib/attendance-reg-number-gender";
 import { applyHrmAttEtcInfoToForm } from "@/features/attendance/lib/attendance-reg-number-lookup";
 import { parseEtcAttr2Options } from "@/features/attendance/lib/etc-form-input-kind";
 import type { KeyboardEvent, RefObject } from "react";
@@ -37,6 +41,7 @@ export function useRegNumberLookup({
   formRef,
 }: Params) {
   const lookupInFlightRef = useRef(false);
+  const pendingFocusAfterLookupRef = useRef(false);
 
   const lookupAndApply = useCallback(
     async (regNumber: string): Promise<boolean> => {
@@ -73,32 +78,51 @@ export function useRegNumberLookup({
       event.preventDefault();
       event.stopPropagation();
 
-      if (lookupInFlightRef.current) return;
+      applyGenderFromRegNumber(
+        regNumber,
+        setValue,
+        getStaticAttr2Options(sortedEnabledRows, "05"),
+      );
+
+      const focusTarget = event.target instanceof HTMLElement ? event.target : null;
+
+      const moveFocusAfterLookup = (found: boolean) => {
+        const formEl = formRef.current;
+        if (!formEl) return;
+
+        scheduleFocusAttendanceFormField(
+          formEl,
+          found ? "shift" : "companyName",
+          {
+            fromTarget: focusTarget,
+            focusNextFromTarget: focusNextAttendanceField,
+          },
+        );
+      };
+
+      if (lookupInFlightRef.current) {
+        pendingFocusAfterLookupRef.current = true;
+        return;
+      }
       lookupInFlightRef.current = true;
 
       void (async () => {
+        let found = false;
         try {
-          const found = await lookupAndApply(regNumber);
-          const formEl = formRef.current;
-          if (!formEl) return;
-
-          if (found) {
-            focusAttendanceFormField(formEl, "shift");
-            return;
-          }
-
-          focusAttendanceFormField(formEl, "companyName");
+          found = await lookupAndApply(regNumber);
+          moveFocusAfterLookup(found);
         } catch {
-          const formEl = formRef.current;
-          if (formEl) {
-            focusAttendanceFormField(formEl, "companyName");
-          }
+          moveFocusAfterLookup(false);
         } finally {
           lookupInFlightRef.current = false;
+          if (pendingFocusAfterLookupRef.current) {
+            pendingFocusAfterLookupRef.current = false;
+            moveFocusAfterLookup(found);
+          }
         }
       })();
     },
-    [formRef, lookupAndApply],
+    [formRef, lookupAndApply, setValue, sortedEnabledRows],
   );
 
   return { onRegNumberKeyDown };

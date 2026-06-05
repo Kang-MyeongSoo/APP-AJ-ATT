@@ -6,7 +6,8 @@ export const attendanceFormSchema = z.object({
   companyName: z.string().min(1, "업체명을 입력해 주세요."),
   fullName: z.string().min(1, "이름을 입력해 주세요."),
   regNumber: z.string().regex(/^\d{13}$/, "13자리를 입력해 주세요."),
-  phone: z.string().min(1, "휴대폰 번호를 입력해 주세요."),
+  /** 04번 미사용 시 빈 문자열 — 전송 시 `p_cel_no`도 빈 값 */
+  phone: z.string(),
   /** ATT_ETC_FORM `c_attr2` 괄호 안에 정의된 저장값만 사용 */
   gender: z.string().min(1, "성별을 선택해 주세요."),
   workDate: z.string().min(1, "날짜를 선택해 주세요."),
@@ -28,8 +29,9 @@ export const attendanceFormSchema = z.object({
     .refine((n) => n <= 12 * 60, {
       message: "잔업시간은 12시간 이하여야 합니다.",
     }),
-  dinner: z.string().refine((v) => v === "Y" || v === "N", {
-    message: "석식여부를 선택해 주세요.",
+  /** 출근 시 빈 값(미선택), 퇴근 시 Y/N — 퇴근 검증은 별도 */
+  dinner: z.string().refine((v) => v === "" || v === "Y" || v === "N", {
+    message: "석식여부 값이 올바르지 않습니다.",
   }),
   /** 서버 마스터 `c_code` (예: 01, 02, 99) */
   department: z.string().min(1, "근무부서를 선택해 주세요."),

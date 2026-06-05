@@ -74,6 +74,13 @@ export function isDayShift(shift: string): boolean {
 
 export type WorkInOutKind = "in" | "out";
 
+/** 석식여부(12) — 퇴근 선택 시에만 입력 가능 */
+export function isDinnerFieldEnabled(
+  workInOutKind: WorkInOutKind | null,
+): boolean {
+  return workInOutKind === "out";
+}
+
 /** 다음 분 0초까지 남은 ms (시스템 시계 기준) */
 export function msUntilNextMinuteBoundary(now: Date = new Date()): number {
   return (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
@@ -83,7 +90,9 @@ export function msUntilNextMinuteBoundary(now: Date = new Date()): number {
  * 매 분 경계(초=0)마다 `onTick` 호출. 매번 `new Date()`로 읽어 setInterval 누적 오차를 피함.
  * 탭/창 포커스 복귀 시에도 즉시 한 번 동기화.
  */
-export function subscribeLiveAttendanceClockSync(onTick: () => void): () => void {
+export function subscribeLiveAttendanceClockSync(
+  onTick: () => void,
+): () => void {
   if (typeof window === "undefined") {
     onTick();
     return () => {};
@@ -179,7 +188,10 @@ function parseWorkDateValue(workDate: string): Date | null {
 }
 
 /** 폼/API 저장용 `yyyy-MM-dd` */
-export function normalizeWorkDateStorage(workDate: string, now: Date = new Date()): string {
+export function normalizeWorkDateStorage(
+  workDate: string,
+  now: Date = new Date(),
+): string {
   const parsed = parseWorkDateValue(workDate);
   if (!parsed) return formatCurrentWorkDate(now);
   return format(parsed, "yyyy-MM-dd");

@@ -74,6 +74,8 @@ import { handleAttendanceFormEnterKeyDown } from "../lib/attendance-form-enter-n
 import {
   ATTENDANCE_FIELD_CODES_ORDERED,
   normalizeAttendanceFieldCode,
+  validateAttendanceDinnerWhenClockOut,
+  validateAttendancePhoneWhenVisible,
 } from "../lib/attendance-field-codes";
 import {
   applyCaseWhenDrivenFormFields,
@@ -93,6 +95,7 @@ import {
   isWorkTimeFormatHint,
   normalizeEtcInputKind,
   parseEtcAttr2Options,
+  isDinnerFieldEnabled,
   resolveWorkInOutKind,
   sanitizeWorkTimeValue,
   subscribeLiveAttendanceClockSync,
@@ -303,6 +306,15 @@ export const AttendanceForm = forwardRef<
     etcFormQuery.isSuccess &&
     sortedEnabledRows.length === 0;
 
+  const visibleFieldCodes = useMemo((): ReadonlySet<string> | null => {
+    if (!useServerLayout) return null;
+    return new Set(
+      sortedEnabledRows
+        .map((r) => normalizeAttendanceFieldCode(r.c_code))
+        .filter((c): c is string => c != null),
+    );
+  }, [useServerLayout, sortedEnabledRows]);
+
   const staticFirstColumnSpecs: ReadonlyArray<{
     fieldCode: string;
     fallbackKey: keyof AttendanceFormTexts;
@@ -489,7 +501,23 @@ export const AttendanceForm = forwardRef<
             "양식 입력값을 확인해 주세요.";
           return { ok: false, message };
         }
-        return { ok: true, values: getValues() };
+        const values = getValues();
+        const phoneMessage = validateAttendancePhoneWhenVisible(
+          values,
+          visibleFieldCodes,
+        );
+        if (phoneMessage) {
+          return { ok: false, message: phoneMessage };
+        }
+        const dinnerMessage = validateAttendanceDinnerWhenClockOut(
+          values,
+          workInOutValidationOptions,
+          visibleFieldCodes,
+        );
+        if (dinnerMessage) {
+          return { ok: false, message: dinnerMessage };
+        }
+        return { ok: true, values };
       },
       validateBeforeSend: async () => {
         const valid = await trigger();
@@ -500,6 +528,21 @@ export const AttendanceForm = forwardRef<
           return { ok: false, message };
         }
         const values = getValues();
+        const phoneMessage = validateAttendancePhoneWhenVisible(
+          values,
+          visibleFieldCodes,
+        );
+        if (phoneMessage) {
+          return { ok: false, message: phoneMessage };
+        }
+        const dinnerMessage = validateAttendanceDinnerWhenClockOut(
+          values,
+          workInOutValidationOptions,
+          visibleFieldCodes,
+        );
+        if (dinnerMessage) {
+          return { ok: false, message: dinnerMessage };
+        }
         const clockOutIssue = await validateClockOutCheckIn(values);
         if (clockOutIssue) return clockOutIssue;
         return { ok: true, values };
@@ -512,6 +555,8 @@ export const AttendanceForm = forwardRef<
       getValues,
       resetAfterSuccessfulSubmit,
       validateClockOutCheckIn,
+      visibleFieldCodes,
+      workInOutValidationOptions,
     ],
   );
 
@@ -569,22 +614,13 @@ export const AttendanceForm = forwardRef<
   );
   const workTimeAutoOnly = workInOutValidationOptions.length > 0;
   const isElectronDevSession = useElectronDevSession();
-  const allowDevEndTimeEdit =
-    isElectronDevSession && workInOutKind === "out";
+  const allowDevEndTimeEdit = isElectronDevSession && workInOutKind === "out";
   const startTimeInputDisabled =
     workTimeAutoOnly ||
-    isPeerWorkTimeInputDisabled(
-      "start",
-      workInOutKind,
-      String(watchedEndTime),
-    );
+    isPeerWorkTimeInputDisabled("start", workInOutKind, String(watchedEndTime));
   const endTimeInputDisabled =
     (workTimeAutoOnly && !allowDevEndTimeEdit) ||
-    isPeerWorkTimeInputDisabled(
-      "end",
-      workInOutKind,
-      String(watchedStartTime),
-    );
+    isPeerWorkTimeInputDisabled("end", workInOutKind, String(watchedStartTime));
 
   const enabledFieldCodes = useMemo(
     () =>
@@ -643,6 +679,14 @@ export const AttendanceForm = forwardRef<
   ]);
 
   const isClockOutMode = workInOutKind === "out";
+  const isDinnerEnabled = isDinnerFieldEnabled(workInOutKind);
+
+  useEffect(() => {
+    if (isDinnerEnabled) return;
+    if (getValues("dinner") !== "") {
+      setValue("dinner", "", { shouldValidate: true });
+    }
+  }, [isDinnerEnabled, getValues, setValue]);
 
   useEffect(() => {
     if (!isClockOutMode) {
@@ -659,11 +703,7 @@ export const AttendanceForm = forwardRef<
     if (!rules?.length) return;
 
     const snapped = snapOvertimeMinutesToOption(
-      calculateOvertimeMinutesFromRules(
-        rules,
-        endTime,
-        String(watchedDinner),
-      ),
+      calculateOvertimeMinutesFromRules(rules, endTime, String(watchedDinner)),
     );
     if (getValues("overtimeMinutes") !== snapped) {
       setValue("overtimeMinutes", snapped, { shouldValidate: true });
@@ -716,7 +756,7 @@ export const AttendanceForm = forwardRef<
       setValue("fullName", "-", { shouldValidate: true });
     }
     if (!visible.has("04")) {
-      setValue("phone", "01000000000", { shouldValidate: true });
+      setValue("phone", "", { shouldValidate: true });
     }
     if (!visible.has("09")) {
       setValue("startTime", "", { shouldValidate: true });
@@ -995,7 +1035,9 @@ export const AttendanceForm = forwardRef<
 
   useEffect(() => {
     if (!liveWorkDateEnabled && workInOutValidationOptions.length === 0) return;
-    return subscribeLiveAttendanceClockSync(syncLiveAttendanceFieldsOnClockTick);
+    return subscribeLiveAttendanceClockSync(
+      syncLiveAttendanceFieldsOnClockTick,
+    );
   }, [
     liveWorkDateEnabled,
     workInOutValidationOptions.length,
@@ -1618,30 +1660,52 @@ export const AttendanceForm = forwardRef<
                                   <div
                                     role="radiogroup"
                                     aria-label="석식여부"
-                                    className="flex items-center gap-6 rounded-md border border-zinc-300 bg-white px-3 py-2"
+                                    aria-disabled={!isDinnerEnabled}
+                                    className={cn(
+                                      "flex items-center gap-6 rounded-md border border-zinc-300 px-3 py-2",
+                                      isDinnerEnabled
+                                        ? "bg-white"
+                                        : lockedFieldInputClass("bg-white"),
+                                    )}
                                   >
-                                    <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
+                                    <label
+                                      className={cn(
+                                        "flex items-center gap-2 text-sm text-zinc-900",
+                                        isDinnerEnabled
+                                          ? "cursor-pointer"
+                                          : "cursor-not-allowed",
+                                      )}
+                                    >
                                       <input
                                         type="radio"
                                         name={field.name}
                                         value="Y"
                                         checked={field.value === "Y"}
+                                        disabled={!isDinnerEnabled}
                                         onChange={field.onChange}
                                         onBlur={field.onBlur}
                                         ref={field.ref}
-                                        className="h-4 w-4 accent-zinc-900"
+                                        className="h-4 w-4 accent-zinc-900 disabled:cursor-not-allowed"
                                       />
                                       Y
                                     </label>
-                                    <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
+                                    <label
+                                      className={cn(
+                                        "flex items-center gap-2 text-sm text-zinc-900",
+                                        isDinnerEnabled
+                                          ? "cursor-pointer"
+                                          : "cursor-not-allowed",
+                                      )}
+                                    >
                                       <input
                                         type="radio"
                                         name={field.name}
                                         value="N"
                                         checked={field.value === "N"}
+                                        disabled={!isDinnerEnabled}
                                         onChange={field.onChange}
                                         onBlur={field.onBlur}
-                                        className="h-4 w-4 accent-zinc-900"
+                                        className="h-4 w-4 accent-zinc-900 disabled:cursor-not-allowed"
                                       />
                                       N
                                     </label>

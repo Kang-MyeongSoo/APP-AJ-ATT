@@ -1,3 +1,30 @@
+const FOCUSABLE_SELECTOR = [
+  'input:not([disabled]):not([type="hidden"])',
+  'button[role="combobox"]:not([disabled])',
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+].join(", ");
+
+function focusAttendanceControl(
+  focusable: HTMLElement,
+): void {
+  focusable.focus();
+  if (
+    focusable instanceof HTMLInputElement &&
+    focusable.type !== "radio" &&
+    focusable.type !== "date"
+  ) {
+    focusable.select();
+  }
+}
+
+function resolveFocusableFromHost(host: HTMLElement): HTMLElement | null {
+  if (host.matches(FOCUSABLE_SELECTOR)) {
+    return host;
+  }
+  return host.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+}
+
 export function focusAttendanceFormField(
   container: HTMLElement | null,
   fieldName: string,
@@ -8,23 +35,9 @@ export function focusAttendanceFormField(
     `[data-attendance-focus="${fieldName}"]`,
   );
   if (host) {
-    const focusable = host.querySelector<HTMLElement>(
-      [
-        'input:not([disabled]):not([type="hidden"])',
-        'button[role="combobox"]:not([disabled])',
-        "select:not([disabled])",
-        "textarea:not([disabled])",
-      ].join(", "),
-    );
+    const focusable = resolveFocusableFromHost(host);
     if (focusable) {
-      focusable.focus();
-      if (
-        focusable instanceof HTMLInputElement &&
-        focusable.type !== "radio" &&
-        focusable.type !== "date"
-      ) {
-        focusable.select();
-      }
+      focusAttendanceControl(focusable);
       return true;
     }
   }
@@ -33,12 +46,34 @@ export function focusAttendanceFormField(
     `input[name="${fieldName}"]:not([disabled])`,
   );
   if (named) {
-    named.focus();
-    if (named instanceof HTMLInputElement && named.type !== "radio") {
-      named.select();
-    }
+    focusAttendanceControl(named);
     return true;
   }
 
   return false;
+}
+
+/** setValue 등으로 DOM이 갱신된 뒤 포커스를 시도합니다. */
+export function scheduleFocusAttendanceFormField(
+  container: HTMLElement | null,
+  fieldName: string,
+  options?: {
+    fromTarget?: HTMLElement | null;
+    focusNextFromTarget?: (
+      form: HTMLElement,
+      target: HTMLElement,
+    ) => boolean;
+  },
+): void {
+  if (!container) return;
+
+  const attempt = () => {
+    if (focusAttendanceFormField(container, fieldName)) return;
+    const from = options?.fromTarget;
+    if (from && options?.focusNextFromTarget?.(container, from)) return;
+  };
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(attempt);
+  });
 }
