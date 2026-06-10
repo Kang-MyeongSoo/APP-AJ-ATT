@@ -362,7 +362,7 @@ export function applyCaseWhenDrivenFormFields(
         );
         break;
       case "11": {
-        const n = Number.parseInt(resolved, 10);
+        const n = Number.parseFloat(resolved);
         if (Number.isFinite(n)) {
           setFormValueIfChanged(getValues, setValue, "overtimeMinutes", n);
         }
@@ -415,7 +415,7 @@ function assignCaseWhenResolvedValue(
     case "10":
       return { ...values, endTime: sanitizeWorkTimeValue(resolved) };
     case "11": {
-      const n = Number.parseInt(resolved, 10);
+      const n = Number.parseFloat(resolved);
       return Number.isFinite(n) ? { ...values, overtimeMinutes: n } : values;
     }
     case "12":
@@ -619,13 +619,13 @@ export function buildAttendanceFormResetValues(
         if (kind === "combo") {
           const v = resolveEtcComboInitialValue(row);
           if (v) {
-            const n = Number.parseInt(v, 10);
+            const n = Number.parseFloat(v);
             if (Number.isFinite(n)) {
               values = { ...values, overtimeMinutes: n };
             }
           }
         } else if (init) {
-          const n = Number.parseInt(init, 10);
+          const n = Number.parseFloat(init);
           if (Number.isFinite(n)) {
             values = { ...values, overtimeMinutes: n };
           }

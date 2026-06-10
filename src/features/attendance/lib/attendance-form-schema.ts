@@ -21,12 +21,11 @@ export const attendanceFormSchema = z.object({
   endTime: z.string().refine((v) => v.length === 0 || TIME_HM_REGEX.test(v), {
     message: "퇴근시간은 HH:MM(00:00~23:59) 형식이어야 합니다.",
   }),
-  /** 30분 단위 (분), 0 = 없음 */
+  /** ATT_ETC_FORM 11 `c_attr2` 괄호 안 코드값(시간 단위) — 예: 0, 0.5, 4 */
   overtimeMinutes: z.coerce
     .number()
-    .int()
     .refine((n) => n >= 0, { message: "잔업시간을 선택해 주세요." })
-    .refine((n) => n <= 12 * 60, {
+    .refine((n) => n <= 12, {
       message: "잔업시간은 12시간 이하여야 합니다.",
     }),
   /** 출근 시 빈 값(미선택), 퇴근 시 Y/N — 퇴근 검증은 별도 */
@@ -41,14 +40,12 @@ export const attendanceFormSchema = z.object({
 export type AttendanceFormValues = z.input<typeof attendanceFormSchema>;
 
 export function resolveOvertimeSelectValue(
-  minutes: number,
+  codeHours: number,
+  options: ReadonlyArray<{ value: string }>,
 ): string | undefined {
-  if (!Number.isFinite(minutes) || minutes < 0) return undefined;
-  if (!OVERTIME_MINUTE_OPTIONS.includes(minutes)) return undefined;
-  return String(minutes);
+  if (!Number.isFinite(codeHours) || codeHours < 0) return undefined;
+  const matched = options.find(
+    (o) => Number.parseFloat(o.value) === codeHours,
+  );
+  return matched ? matched.value : undefined;
 }
-
-export const OVERTIME_MINUTE_OPTIONS = Array.from(
-  { length: 12 * 2 + 1 },
-  (_, i) => i * 30,
-) as number[];

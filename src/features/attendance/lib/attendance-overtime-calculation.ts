@@ -1,22 +1,59 @@
 import type { PlusMinusTimeRule } from "@/features/attendance/lib/attendance-plus-minus-time-api";
-import { OVERTIME_MINUTE_OPTIONS } from "@/features/attendance/lib/attendance-form-schema";
 
 const MINUTES_PER_DAY = 24 * 60;
 
-export function formatOvertimeLabel(minutes: number): string {
-  if (minutes === 0) return "없음 (0분)";
-  const h = minutes / 60;
-  if (h === Math.floor(h)) return `${h}시간`;
-  return `${h}시간`;
+export type OvertimeConfigOption = {
+  label: string;
+  value: string;
+};
+
+/** `c_attr2` 괄호 안 코드값(시간 단위) 파싱 — 예: `0`, `0.5`, `4` */
+export function parseOvertimeCodeHours(value: string): number | null {
+  const n = Number.parseFloat(value.trim());
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
-/** 30분 단위 옵션에 맞게 내림(29분→0, 30~59분→30)·상한 */
-export function snapOvertimeMinutesToOption(minutes: number): number {
-  const snapped = Math.floor(minutes / 30) * 30;
-  const capped = Math.min(12 * 60, Math.max(0, snapped));
-  if (OVERTIME_MINUTE_OPTIONS.includes(capped)) return capped;
-  const fallback = OVERTIME_MINUTE_OPTIONS.filter((m) => m <= capped).at(-1);
-  return fallback ?? 0;
+function formatOvertimeHoursFallback(hours: number): string {
+  if (hours === 0) return "없음";
+  if (hours === Math.floor(hours)) return `${hours}시간`;
+  return `${hours}시간`;
+}
+
+/** 폼·저장값(시간 단위 코드)에 맞는 표시 라벨 */
+export function formatOvertimeLabel(
+  codeHours: number,
+  options: ReadonlyArray<OvertimeConfigOption> = [],
+): string {
+  const matched = options.find(
+    (o) => parseOvertimeCodeHours(o.value) === codeHours,
+  );
+  if (matched) return matched.label;
+  return formatOvertimeHoursFallback(codeHours);
+}
+
+/**
+ * 계산된 잔업(분)을 `c_attr2` 구성값 코드(시간)에 맞춤.
+ * - 정확히 일치하는 코드가 있으면 해당 값
+ * - 없으면 계산 시간 이하이면서 가장 가까운(최대) 코드값
+ */
+export function snapOvertimeToConfigCode(
+  calculatedMinutes: number,
+  options: ReadonlyArray<OvertimeConfigOption>,
+): number {
+  const calculatedHours = Math.max(0, calculatedMinutes) / 60;
+  const codeHours = options
+    .map((o) => parseOvertimeCodeHours(o.value))
+    .filter((n): n is number => n !== null)
+    .sort((a, b) => a - b);
+
+  if (codeHours.length === 0) return 0;
+
+  const exact = codeHours.find((h) => h === calculatedHours);
+  if (exact !== undefined) return exact;
+
+  const fallback = codeHours.filter((h) => h <= calculatedHours).at(-1);
+  return fallback ?? codeHours[0] ?? 0;
 }
 
 function parseHmToMinutes(value: string): number | null {

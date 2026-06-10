@@ -36,6 +36,7 @@ import {
   readServerBaseUrl,
   writeServerBaseUrl,
 } from "@/lib/server-connection-storage";
+import { AttendanceFormColorsEditor } from "@/features/settings/components/attendance-form-colors-editor";
 import { hasSettingsAdminSession } from "@/lib/settings-session-storage";
 import { Settings } from "lucide-react";
 import Image from "next/image";
@@ -78,7 +79,8 @@ type SettingsMenu =
   | "formTitle"
   | "serverConnection"
   | "cameraViewSize"
-  | "cameraActionFooter";
+  | "cameraActionFooter"
+  | "formColors";
 
 type FormTitleSubView = "template" | "editForm";
 
@@ -222,6 +224,14 @@ export default function SettingsPage() {
               >
                 안내 문구
               </Button>
+              <Button
+                type="button"
+                variant={selectedMenu === "formColors" ? "default" : "ghost"}
+                className="w-full justify-start rounded-lg"
+                onClick={() => setSelectedMenu("formColors")}
+              >
+                색상 변경
+              </Button>
               {isAdminSession ? (
                 <Button
                   type="button"
@@ -336,6 +346,14 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                 </div>
+              )}
+
+              {selectedMenu === "formColors" && (
+                <AttendanceFormColorsEditor
+                  onSaved={() =>
+                    toast({ description: "입력폼 색상을 저장했습니다." })
+                  }
+                />
               )}
 
               {selectedMenu === "cameraActionFooter" && (

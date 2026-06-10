@@ -1,18 +1,42 @@
 import { fetchClockInDepartmentWork } from "@/features/attendance/lib/attendance-clock-in-dpt-work-api";
-import { validateMobileAttendanceExists } from "@/features/attendance/lib/attendance-validate-exists-api";
 import { resolveWorkInOutKind } from "@/features/attendance/lib/etc-form-input-kind";
-import type { R2FlagMsgDialogContent } from "@/lib/r2-flag-msg-response";
 
-export const CLOCK_OUT_NO_CHECK_IN_DIALOG: R2FlagMsgDialogContent = {
-  title: "퇴근 불가",
-  message:
-    "출근 데이터가 없어 퇴근 처리할 수 없습니다.\n\nCannot process clock-out because no clock-in record exists for today.",
-  tone: "error",
+export type ClockOutLookupFields = {
+  terMode: "1" | "2";
+  dptWork?: string;
+  attDnFlag?: string;
 };
 
+export type ClockOutLookupSetValue = (
+  name: "workInOut" | "department" | "shift",
+  value: string,
+  options?: { shouldValidate?: boolean },
+) => void;
+
+export function applyClockOutLookupFields(
+  lookup: ClockOutLookupFields,
+  setValue: ClockOutLookupSetValue,
+): void {
+  if (lookup.terMode === "1") {
+    setValue("workInOut", "1", { shouldValidate: true });
+    return;
+  }
+
+  setValue("workInOut", "2", { shouldValidate: true });
+
+  const dptWork = lookup.dptWork?.trim();
+  if (dptWork) {
+    setValue("department", dptWork, { shouldValidate: true });
+  }
+
+  const attDnFlag = lookup.attDnFlag?.trim();
+  if (attDnFlag) {
+    setValue("shift", attDnFlag, { shouldValidate: true });
+  }
+}
+
 export type ClockOutCheckInValidationResult =
-  | { ok: true; dptWork?: string }
-  | { ok: false; dialog: R2FlagMsgDialogContent }
+  | { ok: true; lookup?: ClockOutLookupFields }
   | { ok: false; error: string };
 
 export function isClockOutSelection(
@@ -20,6 +44,27 @@ export function isClockOutSelection(
   options: Array<{ label: string; value: string }>,
 ): boolean {
   return resolveWorkInOutKind(workInOut, options) === "out";
+}
+
+export function mapDptWorkResult(
+  result: Awaited<ReturnType<typeof fetchClockInDepartmentWork>>,
+): ClockOutCheckInValidationResult {
+  if (result.ok === false) {
+    return { ok: false, error: result.error };
+  }
+
+  if (result.terMode === "1") {
+    return { ok: true, lookup: { terMode: "1" } };
+  }
+
+  return {
+    ok: true,
+    lookup: {
+      terMode: "2",
+      dptWork: result.dptWork,
+      attDnFlag: result.attDnFlag || undefined,
+    },
+  };
 }
 
 export async function ensureClockInExistsForClockOut(params: {
@@ -33,28 +78,11 @@ export async function ensureClockInExistsForClockOut(params: {
     return { ok: true };
   }
 
-  const api = await validateMobileAttendanceExists(
-    params.serverBaseUrl,
-    params.regNumber,
-    params.workDate,
-  );
-
-  if (api.ok === false) {
-    return { ok: false, error: api.error };
-  }
-
-  if (!api.exists) {
-    return { ok: false, dialog: CLOCK_OUT_NO_CHECK_IN_DIALOG };
-  }
-
   const dptResult = await fetchClockInDepartmentWork(
     params.serverBaseUrl,
     params.regNumber,
     params.workDate,
   );
 
-  return {
-    ok: true,
-    dptWork: dptResult.ok ? dptResult.dptWork : undefined,
-  };
+  return mapDptWorkResult(dptResult);
 }

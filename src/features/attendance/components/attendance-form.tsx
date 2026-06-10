@@ -38,7 +38,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ensureClockInExistsForClockOut } from "@/features/attendance/lib/attendance-clock-out-validation";
+import {
+  applyClockOutLookupFields,
+  ensureClockInExistsForClockOut,
+} from "@/features/attendance/lib/attendance-clock-out-validation";
 import { readServerBaseUrl } from "@/lib/server-connection-storage";
 import { buildR2ApiErrorDialogContent } from "@/lib/r2-flag-msg-response";
 import type { R2FlagMsgDialogContent } from "@/lib/r2-flag-msg-response";
@@ -56,7 +59,7 @@ import {
 import { fetchPlusMinusTimeRules } from "../lib/attendance-plus-minus-time-api";
 import {
   calculateOvertimeMinutesFromRules,
-  snapOvertimeMinutesToOption,
+  snapOvertimeToConfigCode,
 } from "../lib/attendance-overtime-calculation";
 import {
   defaultAttendanceFormTexts,
@@ -102,12 +105,21 @@ import {
 } from "../lib/etc-form-input-kind";
 import { lockedFieldInputClass } from "../lib/attendance-locked-field-input";
 import {
+  attendanceFormColorStyle,
+  attendanceFormTitleHeaderBgClass,
+  DEFAULT_ATTENDANCE_FORM_DISABLED_CELL_COLOR,
+  DEFAULT_ATTENDANCE_FORM_TITLE_HEADER_BG,
+  mergeAttendanceFormColors,
+  type AttendanceFormColors,
+} from "@/features/attendance/lib/attendance-form-colors";
+import {
   ATTENDANCE_FORM_FONT_SCALE_DEFAULT,
   ATTENDANCE_FORM_FONT_SCALE_MAX,
   ATTENDANCE_FORM_FONT_SCALE_MIN,
   formatAttendanceFormFontScaleLabel,
   useAttendanceFormFontScaleStore,
 } from "@/features/attendance/stores/attendance-form-font-scale-store";
+import { useAttendanceFormColorsStore } from "@/features/attendance/stores/attendance-form-colors-store";
 import { Loader2, Minus, Plus, RefreshCw } from "lucide-react";
 import { AttendanceFormEtcDynamicRows } from "./attendance-form-etc-dynamic-rows";
 import { OvertimeMinutesField } from "./overtime-minutes-field";
@@ -130,9 +142,9 @@ const tdM =
   "border-b border-r border-zinc-200 bg-white px-2 py-2 align-top min-w-[13rem]";
 const tdR =
   "border-b border-zinc-200 bg-white px-2 py-2 align-middle text-xs leading-snug text-zinc-600 sm:text-sm";
-const thL = cn(tdL, "bg-zinc-100 text-zinc-900");
-const thM = cn(tdM, "bg-zinc-100 text-zinc-900");
-const thR = cn(tdR, "bg-zinc-100 text-zinc-800");
+const thL = cn(tdL, attendanceFormTitleHeaderBgClass, "text-zinc-900");
+const thM = cn(tdM, attendanceFormTitleHeaderBgClass, "text-zinc-900");
+const thR = cn(tdR, attendanceFormTitleHeaderBgClass, "text-zinc-800");
 const tdLLast = cn(tdL, "border-b-0");
 const tdMLast = cn(tdM, "border-b-0");
 const tdRLast = cn(tdR, "border-b-0");
@@ -177,6 +189,8 @@ type AttendanceFormProps = {
   texts?: Partial<AttendanceFormTexts>;
   textRenderer?: (key: keyof AttendanceFormTexts, value: string) => ReactNode;
   onAttendanceAlert?: (content: R2FlagMsgDialogContent) => void;
+  /** 설정 미리보기 등 저장 전 색상을 즉시 반영할 때 사용 */
+  colorsOverride?: Partial<AttendanceFormColors>;
 };
 
 export type AttendanceFormValidationResult =
@@ -205,21 +219,46 @@ export const AttendanceForm = forwardRef<
   AttendanceFormHandle,
   AttendanceFormProps
 >(function AttendanceForm(
-  { className, formId = "attendance", texts, textRenderer, onAttendanceAlert },
+  {
+    className,
+    formId = "attendance",
+    texts,
+    textRenderer,
+    onAttendanceAlert,
+    colorsOverride,
+  },
   ref,
 ) {
   const attendanceFormRef = useRef<HTMLFormElement>(null);
   const [fontScaleHydrated, setFontScaleHydrated] = useState(false);
+  const [colorsHydrated, setColorsHydrated] = useState(false);
   const fontScale = useAttendanceFormFontScaleStore((s) => s.scale);
   const decreaseFontScale = useAttendanceFormFontScaleStore((s) => s.decrease);
   const increaseFontScale = useAttendanceFormFontScaleStore((s) => s.increase);
+  const titleHeaderBackgroundColor = useAttendanceFormColorsStore(
+    (s) => s.titleHeaderBackgroundColor,
+  );
+  const disabledCellColor = useAttendanceFormColorsStore(
+    (s) => s.disabledCellColor,
+  );
   const effectiveFontScale = fontScaleHydrated
     ? fontScale
     : ATTENDANCE_FORM_FONT_SCALE_DEFAULT;
+  const storedFormColors = colorsHydrated
+    ? { titleHeaderBackgroundColor, disabledCellColor }
+    : {
+        titleHeaderBackgroundColor: DEFAULT_ATTENDANCE_FORM_TITLE_HEADER_BG,
+        disabledCellColor: DEFAULT_ATTENDANCE_FORM_DISABLED_CELL_COLOR,
+      };
+  const effectiveFormColors = colorsOverride
+    ? mergeAttendanceFormColors({ ...storedFormColors, ...colorsOverride })
+    : storedFormColors;
 
   useEffect(() => {
     void useAttendanceFormFontScaleStore.persist.rehydrate();
+    void useAttendanceFormColorsStore.persist.rehydrate();
     setFontScaleHydrated(true);
+    setColorsHydrated(true);
   }, []);
   const canDecreaseFontScale =
     effectiveFontScale > ATTENDANCE_FORM_FONT_SCALE_MIN;
@@ -378,6 +417,20 @@ export const AttendanceForm = forwardRef<
     [etcFormRows],
   );
 
+  const overtimeRow11 = useMemo(
+    () =>
+      etcFormRows.find(
+        (r) =>
+          normalizeAttendanceFieldCode(r.c_code) === "11" && r.use_flag === "Y",
+      ),
+    [etcFormRows],
+  );
+
+  const overtimeOptions = useMemo(() => {
+    if (!overtimeRow11) return [];
+    return parseEtcAttr2Options(overtimeRow11.c_attr2);
+  }, [overtimeRow11]);
+
   const workInOutOptions = useMemo(() => {
     if (!workInOutRow08) return [];
     return parseEtcAttr2Options(workInOutRow08.c_attr2);
@@ -409,6 +462,7 @@ export const AttendanceForm = forwardRef<
     serverBaseUrl,
     sortedEnabledRows,
     setValue,
+    getValues,
     formRef: attendanceFormRef,
   });
 
@@ -440,21 +494,14 @@ export const AttendanceForm = forwardRef<
       });
 
       if (clockOutCheck.ok === false) {
-        if ("dialog" in clockOutCheck) {
-          return { ok: false, dialog: clockOutCheck.dialog };
-        }
         return {
           ok: false,
-          message:
-            "error" in clockOutCheck
-              ? clockOutCheck.error
-              : "출근 확인에 실패했습니다.",
+          message: clockOutCheck.error,
         };
       }
 
-      const dptWork = clockOutCheck.dptWork?.trim();
-      if (dptWork) {
-        setValue("department", dptWork, { shouldValidate: true });
+      if (clockOutCheck.lookup) {
+        applyClockOutLookupFields(clockOutCheck.lookup, setValue);
       }
 
       return null;
@@ -478,26 +525,16 @@ export const AttendanceForm = forwardRef<
         workInOutOptions: workInOutValidationOptions,
       });
 
-      if (clockOutCheck.ok) {
-        const dptWork = clockOutCheck.dptWork?.trim();
-        if (dptWork) {
-          setValue("department", dptWork, { shouldValidate: true });
-        }
+      if (clockOutCheck.ok === false) {
+        onAttendanceAlert(
+          buildR2ApiErrorDialogContent(clockOutCheck.error),
+        );
         return;
       }
 
-      if ("dialog" in clockOutCheck) {
-        onAttendanceAlert(clockOutCheck.dialog);
-        return;
+      if (clockOutCheck.lookup) {
+        applyClockOutLookupFields(clockOutCheck.lookup, setValue);
       }
-
-      onAttendanceAlert(
-        buildR2ApiErrorDialogContent(
-          "error" in clockOutCheck
-            ? clockOutCheck.error
-            : "출근 확인에 실패했습니다.",
-        ),
-      );
     },
     [getValues, onAttendanceAlert, setValue, workInOutValidationOptions],
   );
@@ -649,6 +686,8 @@ export const AttendanceForm = forwardRef<
   const canSetStartTime = !useServerLayout || enabledFieldCodes.has("09");
   const canSetEndTime = !useServerLayout || enabledFieldCodes.has("10");
   const liveWorkDateEnabled = canSetWorkDate;
+  const liveTimeSyncEnabled =
+    workTimeAutoOnly && (canSetStartTime || canSetEndTime);
 
   const syncWorkInOutTime = useCallback(
     (options?: { syncEndTime?: boolean }) => {
@@ -681,18 +720,41 @@ export const AttendanceForm = forwardRef<
 
   const syncLiveAttendanceFieldsOnClockTick = useCallback(() => {
     syncLiveWorkDate();
-    syncWorkInOutTime({
-      syncEndTime: !(isElectronDevSession && workInOutKind === "out"),
-    });
-  }, [
-    syncLiveWorkDate,
-    syncWorkInOutTime,
-    isElectronDevSession,
-    workInOutKind,
-  ]);
+    syncWorkInOutTime({ syncEndTime: true });
+  }, [syncLiveWorkDate, syncWorkInOutTime]);
+
+  const handleWorkInOutSelected = useCallback(
+    (workInOutValue: string) => {
+      const kind = resolveWorkInOutKind(
+        workInOutValue,
+        workInOutValidationOptions,
+      );
+      if (kind && workInOutValidationOptions.length > 0) {
+        applyWorkInOutTimeSync({
+          workInOutKind: kind,
+          setValue,
+          canSetStart: canSetStartTime,
+          canSetEnd: canSetEndTime,
+        });
+      }
+      void runClockOutPresenceCheck(workInOutValue);
+    },
+    [
+      workInOutValidationOptions,
+      setValue,
+      canSetStartTime,
+      canSetEndTime,
+      runClockOutPresenceCheck,
+    ],
+  );
 
   const isClockOutMode = workInOutKind === "out";
   const isDinnerEnabled = isDinnerFieldEnabled(workInOutKind);
+
+  useEffect(() => {
+    if (!liveTimeSyncEnabled || !workInOutKind) return;
+    syncWorkInOutTime({ syncEndTime: true });
+  }, [liveTimeSyncEnabled, workInOutKind, syncWorkInOutTime]);
 
   useEffect(() => {
     if (isDinnerEnabled) return;
@@ -715,8 +777,9 @@ export const AttendanceForm = forwardRef<
     const rules = plusMinusTimeQuery.data;
     if (!rules?.length) return;
 
-    const snapped = snapOvertimeMinutesToOption(
+    const snapped = snapOvertimeToConfigCode(
       calculateOvertimeMinutesFromRules(rules, endTime, String(watchedDinner)),
+      overtimeOptions,
     );
     if (getValues("overtimeMinutes") !== snapped) {
       setValue("overtimeMinutes", snapped, { shouldValidate: true });
@@ -726,6 +789,7 @@ export const AttendanceForm = forwardRef<
     watchedEndTime,
     watchedDinner,
     plusMinusTimeQuery.data,
+    overtimeOptions,
     getValues,
     setValue,
   ]);
@@ -1047,13 +1111,13 @@ export const AttendanceForm = forwardRef<
   ]);
 
   useEffect(() => {
-    if (!liveWorkDateEnabled && workInOutValidationOptions.length === 0) return;
+    if (!liveWorkDateEnabled && !liveTimeSyncEnabled) return;
     return subscribeLiveAttendanceClockSync(
       syncLiveAttendanceFieldsOnClockTick,
     );
   }, [
     liveWorkDateEnabled,
-    workInOutValidationOptions.length,
+    liveTimeSyncEnabled,
     syncLiveAttendanceFieldsOnClockTick,
   ]);
 
@@ -1119,7 +1183,10 @@ export const AttendanceForm = forwardRef<
           >
             <div
               className="min-h-0 flex-1 overflow-x-auto overflow-y-auto [-webkit-overflow-scrolling:touch]"
-              style={{ zoom: effectiveFontScale }}
+              style={{
+                zoom: effectiveFontScale,
+                ...attendanceFormColorStyle(effectiveFormColors),
+              }}
             >
               <table
                 className={cn(
@@ -1163,7 +1230,7 @@ export const AttendanceForm = forwardRef<
                       workTimeAutoOnly={workTimeAutoOnly}
                       allowDevEndTimeEdit={allowDevEndTimeEdit}
                       onRegNumberKeyDown={onRegNumberKeyDown}
-                      onWorkInOutSelected={runClockOutPresenceCheck}
+                      onWorkInOutSelected={handleWorkInOutSelected}
                     />
                   ) : useServerEmptyNotice ? (
                     <tr>
@@ -1496,9 +1563,7 @@ export const AttendanceForm = forwardRef<
                                             }
                                             onChange={() => {
                                               field.onChange(opt.value);
-                                              void runClockOutPresenceCheck(
-                                                opt.value,
-                                              );
+                                              handleWorkInOutSelected(opt.value);
                                             }}
                                             onBlur={field.onBlur}
                                             ref={
@@ -1644,6 +1709,7 @@ export const AttendanceForm = forwardRef<
                                   <OvertimeMinutesField
                                     value={Number(field.value) || 0}
                                     inputClass={inputClass}
+                                    options={overtimeOptions}
                                   />
                                 </FormControl>
                                 <FormMessage className="text-xs sm:text-sm" />
@@ -1669,7 +1735,7 @@ export const AttendanceForm = forwardRef<
                                 <FormLabel className="sr-only">
                                   석식여부
                                 </FormLabel>
-                                <FormControl>
+                                <FormControl data-attendance-focus="dinner">
                                   <div
                                     role="radiogroup"
                                     aria-label="석식여부"

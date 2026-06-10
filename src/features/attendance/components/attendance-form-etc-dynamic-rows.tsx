@@ -416,6 +416,7 @@ function EtcFieldMiddle({
       <OvertimeMinutesField
         value={Number(field.value) || 0}
         inputClass={inputClass}
+        options={opts}
       />
     );
   }
@@ -1064,7 +1065,7 @@ export function AttendanceFormEtcDynamicRows({
                       <td className={M}>
                         <FormItem className="space-y-0.5">
                           <FormLabel className="sr-only">석식여부</FormLabel>
-                          <FormControl>
+                          <FormControl data-attendance-focus="dinner">
                             <EtcFieldMiddle
                               code="12"
                               row={row}

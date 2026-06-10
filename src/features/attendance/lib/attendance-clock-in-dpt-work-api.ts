@@ -7,14 +7,27 @@ const clockInDptWorkResponseSchema = z.object({
   items: z
     .array(
       z.object({
-        dpt_work: z.union([z.string(), z.number()]).transform(String),
+        dpt_work: z.union([z.string(), z.number()]).transform(String).optional(),
+        att_dn_flag: z
+          .union([z.string(), z.number()])
+          .transform(String)
+          .optional(),
+        ter_mode: z.union([z.string(), z.number()]).transform(String).optional(),
       }),
     )
     .optional(),
 });
 
+function normalizeResponseFlag(flag: string | number | undefined): string {
+  return String(flag ?? "").trim();
+}
+
 function isSuccessFlag(flag: string | number | undefined): boolean {
-  return String(flag ?? "").trim() === "0";
+  return normalizeResponseFlag(flag) === "0";
+}
+
+function isNoDataFlag(flag: string | number | undefined): boolean {
+  return normalizeResponseFlag(flag) === "-1";
 }
 
 function formatAttDate(workDate: string): string {
@@ -26,11 +39,15 @@ function formatRegNumberDigits(regNumber: string): string {
 }
 
 export type FetchClockInDptWorkResult =
-  | { ok: true; dptWork: string }
+  | { ok: true; responseFlag: "-1"; terMode: "1" }
+  | { ok: true; responseFlag: "0"; terMode: "1" }
+  | { ok: true; responseFlag: "0"; terMode: "2"; dptWork: string; attDnFlag: string }
   | { ok: false; error: string };
 
 /**
- * `usp_mobile_select_att_etc_dpt_work` — 당일 출근 시 등록된 근무부서 조회.
+ * `usp_mobile_select_att_etc_dpt_work` — 당일 출퇴근·근무부서·주간야간 조회.
+ * Flag `-1`: 출근 데이터 없음 → 출근(1).
+ * Flag `0`: `ter_mode` 1=출근, 2=퇴근. 퇴근 시 `dpt_work`·`att_dn_flag` 반영.
  * param1: 등록번호 13자리, param2: 근무일 yyyyMMdd
  */
 export async function fetchClockInDepartmentWork(
@@ -78,18 +95,36 @@ export async function fetchClockInDepartmentWork(
     return { ok: false, error: "출근 근무부서 응답 형식이 올바르지 않습니다." };
   }
 
+  if (isNoDataFlag(parsed.data.Flag)) {
+    return { ok: true, responseFlag: "-1", terMode: "1" };
+  }
+
   if (!isSuccessFlag(parsed.data.Flag)) {
     const msg = String(parsed.data.MSG ?? "").trim();
     return {
       ok: false,
-      error: msg || "출근 근무부서 조회에 실패했습니다.",
+      error: msg || "출퇴근 근무부서 조회에 실패했습니다.",
     };
   }
 
-  const dptWork = parsed.data.items?.[0]?.dpt_work?.trim() ?? "";
-  if (!dptWork) {
-    return { ok: false, error: "출근 근무부서 데이터가 없습니다." };
+  const item = parsed.data.items?.[0];
+  const terMode = item?.ter_mode?.trim() ?? "";
+  const dptWork = item?.dpt_work?.trim() ?? "";
+  const attDnFlag = item?.att_dn_flag?.trim() ?? "";
+
+  if (terMode === "1") {
+    return { ok: true, responseFlag: "0", terMode: "1" };
   }
 
-  return { ok: true, dptWork };
+  if (terMode === "2") {
+    if (!dptWork) {
+      return { ok: false, error: "근무부서 데이터가 없습니다." };
+    }
+    return { ok: true, responseFlag: "0", terMode: "2", dptWork, attDnFlag };
+  }
+
+  return {
+    ok: false,
+    error: "출퇴근 구분(ter_mode) 응답이 올바르지 않습니다.",
+  };
 }
