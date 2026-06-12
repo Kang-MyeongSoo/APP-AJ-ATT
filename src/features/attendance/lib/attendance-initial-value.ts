@@ -18,6 +18,7 @@ import {
   sanitizeWorkTimeValue,
   type EtcInputKind,
 } from "@/features/attendance/lib/etc-form-input-kind";
+import { resolveShiftValueFromTimeSettings } from "@/lib/day-night-shift-time-storage";
 
 export function createDefaultAttendanceFormValues(
   today: Date = new Date(),
@@ -563,16 +564,22 @@ export function buildAttendanceFormResetValues(
       }
       case "07": {
         const opts = parseEtcAttr2Options(row.c_attr2);
+        let shiftValue: string | null = null;
         if (opts.length > 0) {
-          const v = resolveEtcComboInitialValue(row);
-          if (v) {
-            values = { ...values, shift: v };
-            fieldValuesByCode["07"] = v;
-          }
+          shiftValue = resolveEtcComboInitialValue(row);
         } else if (init && !isCaseWhenInitialValue(init)) {
-          values = { ...values, shift: init };
-          fieldValuesByCode["07"] = init;
+          shiftValue = init;
+        } else if (init && isCaseWhenInitialValue(init)) {
+          shiftValue = resolveEtcAttr3Initial(init, fieldValuesByCode, {
+            inputKind: kind,
+            excludeFieldCode: "07",
+          });
         }
+        if (!shiftValue) {
+          shiftValue = resolveShiftValueFromTimeSettings(opts);
+        }
+        values = { ...values, shift: shiftValue };
+        fieldValuesByCode["07"] = shiftValue;
         break;
       }
       case "08": {
@@ -675,7 +682,10 @@ export function buildAttendanceFormResetValues(
     values = { ...values, gender: "M" };
   }
   if (!visible.has("07") && !values.shift.trim()) {
-    values = { ...values, shift: "D" };
+    values = {
+      ...values,
+      shift: resolveShiftValueFromTimeSettings(),
+    };
   }
   if (!visible.has("11")) {
     values = { ...values, overtimeMinutes: 0 };

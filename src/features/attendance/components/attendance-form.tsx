@@ -42,6 +42,7 @@ import {
   applyClockOutLookupFields,
   ensureClockInExistsForClockOut,
 } from "@/features/attendance/lib/attendance-clock-out-validation";
+import { resolveShiftValueFromTimeSettings } from "@/lib/day-night-shift-time-storage";
 import { readServerBaseUrl } from "@/lib/server-connection-storage";
 import { buildR2ApiErrorDialogContent } from "@/lib/r2-flag-msg-response";
 import type { R2FlagMsgDialogContent } from "@/lib/r2-flag-msg-response";
@@ -470,8 +471,15 @@ export const AttendanceForm = forwardRef<
     const nextValues = useServerLayout
       ? buildAttendanceFormResetValues(sortedEnabledRows, departmentOptions)
       : createDefaultAttendanceFormValues();
+    nextValues.shift = resolveShiftValueFromTimeSettings(staticFieldOpts07);
     reset(nextValues, { keepDefaultValues: false });
-  }, [reset, useServerLayout, sortedEnabledRows, departmentOptions]);
+  }, [
+    reset,
+    useServerLayout,
+    sortedEnabledRows,
+    departmentOptions,
+    staticFieldOpts07,
+  ]);
 
   const validateClockOutCheckIn = useCallback(
     async (
@@ -805,7 +813,11 @@ export const AttendanceForm = forwardRef<
 
   useEffect(() => {
     if (useServerLayout) return;
-    if (!shift.trim()) return;
+    if (!shift.trim()) {
+      const initialShift = resolveShiftValueFromTimeSettings(staticFieldOpts07);
+      setValue("shift", initialShift, { shouldValidate: true });
+      return;
+    }
     if (isNightShift(shift)) {
       setValue("startTime", "20:30", { shouldValidate: true });
       setValue("endTime", "05:30", { shouldValidate: true });
@@ -814,7 +826,7 @@ export const AttendanceForm = forwardRef<
 
     setValue("startTime", "08:30", { shouldValidate: true });
     setValue("endTime", "17:30", { shouldValidate: true });
-  }, [setValue, shift, useServerLayout]);
+  }, [setValue, shift, useServerLayout, staticFieldOpts07]);
 
   useEffect(() => {
     if (!useServerLayout) return;
@@ -845,7 +857,9 @@ export const AttendanceForm = forwardRef<
       setValue("gender", "M", { shouldValidate: true });
     }
     if (!visible.has("07") && !getValues("shift").trim()) {
-      setValue("shift", "D", { shouldValidate: true });
+      setValue("shift", resolveShiftValueFromTimeSettings(), {
+        shouldValidate: true,
+      });
     }
     if (!visible.has("11")) {
       setValue("overtimeMinutes", 0, { shouldValidate: true });
@@ -946,33 +960,24 @@ export const AttendanceForm = forwardRef<
         case "07": {
           const currentShift = getValues("shift").trim();
           const opts = parseEtcAttr2Options(row.c_attr2);
-          if (opts.length > 0) {
-            if (!currentShift) {
-              const v = resolveEtcComboInitialValue(row);
-              if (v) {
-                setValue("shift", v, { shouldValidate: true });
-                fieldValuesByCode["07"] = v;
-              }
-            } else {
-              fieldValuesByCode["07"] = currentShift;
+          if (!currentShift) {
+            let shiftValue: string | null = null;
+            if (opts.length > 0) {
+              shiftValue = resolveEtcComboInitialValue(row);
+            } else if (init && !isCaseWhenInitialValue(init)) {
+              shiftValue = init;
+            } else if (init && isCaseWhenInitialValue(init)) {
+              shiftValue = resolveEtcAttr3Initial(init, fieldValuesByCode, {
+                inputKind: kind,
+                excludeFieldCode: "07",
+              });
             }
-          } else if (init && !isCaseWhenInitialValue(init)) {
-            if (!currentShift) {
-              setValue("shift", init, { shouldValidate: true });
-              fieldValuesByCode["07"] = init;
-            } else {
-              fieldValuesByCode["07"] = currentShift;
+            if (!shiftValue) {
+              shiftValue = resolveShiftValueFromTimeSettings(opts);
             }
-          } else if (init && isCaseWhenInitialValue(init) && !currentShift) {
-            const v = resolveEtcAttr3Initial(init, fieldValuesByCode, {
-              inputKind: kind,
-              excludeFieldCode: "07",
-            });
-            if (v) {
-              setValue("shift", v, { shouldValidate: true });
-              fieldValuesByCode["07"] = v;
-            }
-          } else if (currentShift) {
+            setValue("shift", shiftValue, { shouldValidate: true });
+            fieldValuesByCode["07"] = shiftValue;
+          } else {
             fieldValuesByCode["07"] = currentShift;
           }
           break;

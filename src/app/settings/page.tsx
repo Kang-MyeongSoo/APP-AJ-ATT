@@ -37,6 +37,7 @@ import {
   writeServerBaseUrl,
 } from "@/lib/server-connection-storage";
 import { AttendanceFormColorsEditor } from "@/features/settings/components/attendance-form-colors-editor";
+import { DayNightShiftTimeEditor } from "@/features/settings/components/day-night-shift-time-editor";
 import { hasSettingsAdminSession } from "@/lib/settings-session-storage";
 import { Settings } from "lucide-react";
 import Image from "next/image";
@@ -80,7 +81,8 @@ type SettingsMenu =
   | "serverConnection"
   | "cameraViewSize"
   | "cameraActionFooter"
-  | "formColors";
+  | "formColors"
+  | "dayNightShiftTime";
 
 type FormTitleSubView = "template" | "editForm";
 
@@ -232,6 +234,16 @@ export default function SettingsPage() {
               >
                 색상 변경
               </Button>
+              <Button
+                type="button"
+                variant={
+                  selectedMenu === "dayNightShiftTime" ? "default" : "ghost"
+                }
+                className="w-full justify-start rounded-lg"
+                onClick={() => setSelectedMenu("dayNightShiftTime")}
+              >
+                주간/야간 구분 시간
+              </Button>
               {isAdminSession ? (
                 <Button
                   type="button"
@@ -352,6 +364,16 @@ export default function SettingsPage() {
                 <AttendanceFormColorsEditor
                   onSaved={() =>
                     toast({ description: "입력폼 색상을 저장했습니다." })
+                  }
+                />
+              )}
+
+              {selectedMenu === "dayNightShiftTime" && (
+                <DayNightShiftTimeEditor
+                  onSaved={() =>
+                    toast({
+                      description: "주간/야간 구분 시간을 저장했습니다.",
+                    })
                   }
                 />
               )}

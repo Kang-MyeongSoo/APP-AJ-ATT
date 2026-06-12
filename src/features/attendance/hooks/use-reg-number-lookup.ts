@@ -17,6 +17,7 @@ import { normalizeAttendanceFieldCode } from "@/features/attendance/lib/attendan
 import { applyGenderFromRegNumber } from "@/features/attendance/lib/attendance-reg-number-gender";
 import { applyHrmAttEtcInfoToForm } from "@/features/attendance/lib/attendance-reg-number-lookup";
 import { parseEtcAttr2Options } from "@/features/attendance/lib/etc-form-input-kind";
+import { resolveShiftValueFromTimeSettings } from "@/lib/day-night-shift-time-storage";
 import type { KeyboardEvent, RefObject } from "react";
 import { useCallback, useRef } from "react";
 import type { UseFormGetValues, UseFormSetValue } from "react-hook-form";
@@ -94,6 +95,14 @@ export function useRegNumberLookup({
         const mapped = mapDptWorkResult(dptResult);
         if (mapped.ok && mapped.lookup) {
           applyClockOutLookupFields(mapped.lookup, setValue);
+        }
+        if (!hasAttendanceData) {
+          const shiftOpts = getStaticAttr2Options(sortedEnabledRows, "07");
+          setValue(
+            "shift",
+            resolveShiftValueFromTimeSettings(shiftOpts),
+            { shouldValidate: true },
+          );
         }
       }
 
