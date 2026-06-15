@@ -1,6 +1,6 @@
 "use client";
 
-import { lockedFieldInputClass } from "@/features/attendance/lib/attendance-locked-field-input";
+import { lockedFieldDisplayClass } from "@/features/attendance/lib/attendance-locked-field-input";
 import { formatWorkDateDisplay } from "@/features/attendance/lib/etc-form-input-kind";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ export function WorkDateDisplay({
         aria-readonly
         aria-label={ariaLabel}
         tabIndex={-1}
-        className={lockedFieldInputClass(
+        className={lockedFieldDisplayClass(
           cn(className, "flex h-10 items-center whitespace-nowrap"),
         )}
       >

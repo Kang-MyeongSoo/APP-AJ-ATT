@@ -21,9 +21,11 @@ import type { AttendanceFormValues } from "@/features/attendance/lib/attendance-
 import { OvertimeMinutesField } from "@/features/attendance/components/overtime-minutes-field";
 import { useEtcAttr2Options } from "@/features/attendance/hooks/use-etc-attr2-options";
 import { cn } from "@/lib/utils";
+import { isUserInputLockedAttendanceFieldCode } from "@/features/attendance/lib/attendance-field-codes";
 import {
-  LOCKED_FIELD_INPUT_APPEARANCE,
   lockedFieldInputClass,
+  lockedRadioGroupClass,
+  lockedSelectTriggerClass,
 } from "@/features/attendance/lib/attendance-locked-field-input";
 import { getCaseWhenInitialValueIssue } from "@/features/attendance/lib/attendance-initial-value";
 import { RegNumberMaskedInput } from "@/features/attendance/components/reg-number-masked-input";
@@ -150,6 +152,7 @@ function EtcFieldMiddle({
   const kind = normalizeEtcInputKind(row.c_attr1);
   const dinnerFieldDisabled =
     code === "12" && !isDinnerFieldEnabled(extras.workInOutKind);
+  const userInputLocked = isUserInputLockedAttendanceFieldCode(code);
   const handleRegNumberKeyDown: KeyboardEventHandler<HTMLElement> | undefined =
     code === "01" && extras.onRegNumberKeyDown
       ? (event) => extras.onRegNumberKeyDown?.(event, String(field.value ?? ""))
@@ -266,10 +269,11 @@ function EtcFieldMiddle({
       role="radiogroup"
       aria-label={ariaLabel}
       aria-disabled={disabled}
-      className={cn(
-        radioGroupClass(pairs.length),
-        disabled && LOCKED_FIELD_INPUT_APPEARANCE,
-      )}
+      className={
+        disabled
+          ? lockedRadioGroupClass(pairs.length)
+          : radioGroupClass(pairs.length)
+      }
     >
       {pairs.map((opt, idx) => (
         <label
@@ -284,7 +288,6 @@ function EtcFieldMiddle({
             name={field.name}
             value={opt.value}
             checked={String(field.value) === opt.value}
-            disabled={disabled}
             onChange={() => {
               if (disabled) return;
               field.onChange(opt.value);
@@ -294,7 +297,7 @@ function EtcFieldMiddle({
             }}
             onBlur={field.onBlur}
             ref={idx === 0 ? field.ref : undefined}
-            className="h-4 w-4 accent-zinc-900 disabled:cursor-not-allowed"
+            className="h-4 w-4 accent-zinc-900"
           />
           {opt.label}
         </label>
@@ -307,12 +310,12 @@ function EtcFieldMiddle({
       String(field.value ?? ""),
       opts,
     );
-    const comboDisabled = code === "12" && dinnerFieldDisabled;
-    return (
+    const comboInteractionLocked =
+      userInputLocked || (code === "12" && dinnerFieldDisabled);
+    const selectNode = (
       <Select
-        disabled={comboDisabled}
         onValueChange={(v) => {
-          if (comboDisabled) return;
+          if (comboInteractionLocked) return;
           const next = valueAsNumber ? Number(v) : v;
           field.onChange(next);
           if (code === "08") {
@@ -322,10 +325,12 @@ function EtcFieldMiddle({
         value={selectValue}
       >
         <SelectTrigger
-          className={cn(
-            selectTriggerClass,
-            comboDisabled && LOCKED_FIELD_INPUT_APPEARANCE,
-          )}
+          className={
+            comboInteractionLocked
+              ? lockedSelectTriggerClass(selectTriggerClass)
+              : selectTriggerClass
+          }
+          tabIndex={comboInteractionLocked ? -1 : undefined}
         >
           <SelectValue placeholder="선택" />
         </SelectTrigger>
@@ -338,6 +343,16 @@ function EtcFieldMiddle({
         </SelectContent>
       </Select>
     );
+
+    if (comboInteractionLocked) {
+      return (
+        <div inert className="w-full" data-attendance-skip-focus="">
+          {selectNode}
+        </div>
+      );
+    }
+
+    return selectNode;
   };
 
   const dateInput = () => (
@@ -444,7 +459,7 @@ function EtcFieldMiddle({
         </span>
       );
     }
-    return radioFromMaster(opts, dinnerFieldDisabled);
+    return radioFromMaster(opts, userInputLocked || dinnerFieldDisabled);
   }
 
   if (kind === "date") {

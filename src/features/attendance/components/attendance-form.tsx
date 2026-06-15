@@ -104,7 +104,10 @@ import {
   sanitizeWorkTimeValue,
   subscribeLiveAttendanceClockSync,
 } from "../lib/etc-form-input-kind";
-import { lockedFieldInputClass } from "../lib/attendance-locked-field-input";
+import {
+  lockedFieldInputClass,
+  lockedRadioGroupClass,
+} from "../lib/attendance-locked-field-input";
 import {
   attendanceFormColorStyle,
   attendanceFormTitleHeaderBgClass,
@@ -1399,36 +1402,40 @@ export const AttendanceForm = forwardRef<
                                 <FormControl>
                                   {staticFieldOpts05.length > 0 ? (
                                     <div
-                                      role="radiogroup"
-                                      aria-label="성별"
-                                      className={radioGroupClass(
-                                        staticFieldOpts05.length,
-                                      )}
+                                      inert
+                                      className="w-full"
+                                      data-attendance-skip-focus=""
                                     >
-                                      {staticFieldOpts05.map((opt, idx) => (
-                                        <label
-                                          key={opt.value}
-                                          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
-                                        >
-                                          <input
-                                            type="radio"
-                                            name={field.name}
-                                            value={opt.value}
-                                            checked={
-                                              String(field.value) === opt.value
-                                            }
-                                            onChange={() =>
-                                              field.onChange(opt.value)
-                                            }
-                                            onBlur={field.onBlur}
-                                            ref={
-                                              idx === 0 ? field.ref : undefined
-                                            }
-                                            className="h-4 w-4 accent-zinc-900"
-                                          />
-                                          {opt.label}
-                                        </label>
-                                      ))}
+                                      <div
+                                        role="radiogroup"
+                                        aria-label="성별"
+                                        aria-disabled
+                                        className={lockedRadioGroupClass(
+                                          staticFieldOpts05.length,
+                                        )}
+                                      >
+                                        {staticFieldOpts05.map((opt, idx) => (
+                                          <label
+                                            key={opt.value}
+                                            className="flex cursor-not-allowed items-center gap-2 text-sm text-zinc-900"
+                                          >
+                                            <input
+                                              type="radio"
+                                              name={field.name}
+                                              value={opt.value}
+                                              checked={
+                                                String(field.value) === opt.value
+                                              }
+                                              onBlur={field.onBlur}
+                                              ref={
+                                                idx === 0 ? field.ref : undefined
+                                              }
+                                              className="h-4 w-4 accent-zinc-900"
+                                            />
+                                            {opt.label}
+                                          </label>
+                                        ))}
+                                      </div>
                                     </div>
                                   ) : (
                                     <p className="text-sm text-zinc-500">
@@ -1488,36 +1495,40 @@ export const AttendanceForm = forwardRef<
                                 <FormControl data-attendance-focus="shift">
                                   {staticFieldOpts07.length > 0 ? (
                                     <div
-                                      role="radiogroup"
-                                      aria-label="주간/야간"
-                                      className={radioGroupClass(
-                                        staticFieldOpts07.length,
-                                      )}
+                                      inert
+                                      className="w-full"
+                                      data-attendance-skip-focus=""
                                     >
-                                      {staticFieldOpts07.map((opt, idx) => (
-                                        <label
-                                          key={opt.value}
-                                          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
-                                        >
-                                          <input
-                                            type="radio"
-                                            name={field.name}
-                                            value={opt.value}
-                                            checked={
-                                              String(field.value) === opt.value
-                                            }
-                                            onChange={() =>
-                                              field.onChange(opt.value)
-                                            }
-                                            onBlur={field.onBlur}
-                                            ref={
-                                              idx === 0 ? field.ref : undefined
-                                            }
-                                            className="h-4 w-4 accent-zinc-900"
-                                          />
-                                          {opt.label}
-                                        </label>
-                                      ))}
+                                      <div
+                                        role="radiogroup"
+                                        aria-label="주간/야간"
+                                        aria-disabled
+                                        className={lockedRadioGroupClass(
+                                          staticFieldOpts07.length,
+                                        )}
+                                      >
+                                        {staticFieldOpts07.map((opt, idx) => (
+                                          <label
+                                            key={opt.value}
+                                            className="flex cursor-not-allowed items-center gap-2 text-sm text-zinc-900"
+                                          >
+                                            <input
+                                              type="radio"
+                                              name={field.name}
+                                              value={opt.value}
+                                              checked={
+                                                String(field.value) === opt.value
+                                              }
+                                              onBlur={field.onBlur}
+                                              ref={
+                                                idx === 0 ? field.ref : undefined
+                                              }
+                                              className="h-4 w-4 accent-zinc-900"
+                                            />
+                                            {opt.label}
+                                          </label>
+                                        ))}
+                                      </div>
                                     </div>
                                   ) : (
                                     <p className="text-sm text-zinc-500">
@@ -1548,37 +1559,40 @@ export const AttendanceForm = forwardRef<
                                 <FormControl>
                                   {staticFieldOpts08.length > 0 ? (
                                     <div
-                                      role="radiogroup"
-                                      aria-label="출근/퇴근"
-                                      className={radioGroupClass(
-                                        staticFieldOpts08.length,
-                                      )}
+                                      inert
+                                      className="w-full"
+                                      data-attendance-skip-focus=""
                                     >
-                                      {staticFieldOpts08.map((opt, idx) => (
-                                        <label
-                                          key={opt.value}
-                                          className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900"
-                                        >
-                                          <input
-                                            type="radio"
-                                            name={field.name}
-                                            value={opt.value}
-                                            checked={
-                                              String(field.value) === opt.value
-                                            }
-                                            onChange={() => {
-                                              field.onChange(opt.value);
-                                              handleWorkInOutSelected(opt.value);
-                                            }}
-                                            onBlur={field.onBlur}
-                                            ref={
-                                              idx === 0 ? field.ref : undefined
-                                            }
-                                            className="h-4 w-4 accent-zinc-900"
-                                          />
-                                          {opt.label}
-                                        </label>
-                                      ))}
+                                      <div
+                                        role="radiogroup"
+                                        aria-label="출근/퇴근"
+                                        aria-disabled
+                                        className={lockedRadioGroupClass(
+                                          staticFieldOpts08.length,
+                                        )}
+                                      >
+                                        {staticFieldOpts08.map((opt, idx) => (
+                                          <label
+                                            key={opt.value}
+                                            className="flex cursor-not-allowed items-center gap-2 text-sm text-zinc-900"
+                                          >
+                                            <input
+                                              type="radio"
+                                              name={field.name}
+                                              value={opt.value}
+                                              checked={
+                                                String(field.value) === opt.value
+                                              }
+                                              onBlur={field.onBlur}
+                                              ref={
+                                                idx === 0 ? field.ref : undefined
+                                              }
+                                              className="h-4 w-4 accent-zinc-900"
+                                            />
+                                            {opt.label}
+                                          </label>
+                                        ))}
+                                      </div>
                                     </div>
                                   ) : (
                                     <p className="text-sm text-zinc-500">

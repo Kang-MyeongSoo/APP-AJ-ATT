@@ -72,6 +72,17 @@ export function validateAttendanceDinnerWhenClockOut(
   return null;
 }
 
+/** 성별·주간/야간·출근/퇴근 — 자동 반영 전용(사용자 직접 입력 불가) */
+export const USER_INPUT_LOCKED_ATTENDANCE_FIELD_CODES = new Set([
+  "05",
+  "07",
+  "08",
+]);
+
+export function isUserInputLockedAttendanceFieldCode(code: string): boolean {
+  return USER_INPUT_LOCKED_ATTENDANCE_FIELD_CODES.has(code);
+}
+
 export const ATTENDANCE_FIELD_CODE_TO_FORM_KEY: Record<
   string,
   keyof AttendanceFormValues
