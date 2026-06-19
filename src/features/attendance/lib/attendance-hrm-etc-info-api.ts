@@ -8,12 +8,14 @@ export type HrmAttEtcInfo = {
   gender: string;
 };
 
-const hrmEtcInfoItemSchema = z.object({
-  att_corp_code: z.union([z.string(), z.number()]).transform(String),
-  etc_name: z.union([z.string(), z.number()]).transform(String),
-  cel_no: z.union([z.string(), z.number()]).transform(String),
-  gender: z.union([z.string(), z.number()]).transform(String),
-});
+const hrmEtcInfoItemSchema = z
+  .object({
+    att_corp_code: z.unknown(),
+    etc_name: z.unknown(),
+    cel_no: z.unknown(),
+    gender: z.unknown(),
+  })
+  .passthrough();
 
 const hrmEtcInfoResponseSchema = z.object({
   Flag: z.union([z.string(), z.number()]).optional(),
@@ -23,6 +25,47 @@ const hrmEtcInfoResponseSchema = z.object({
 
 function isSuccessFlag(flag: string | number | undefined): boolean {
   return String(flag ?? "").trim() === "0";
+}
+
+function asTrimmedText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function pickRecordField(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): string {
+  for (const key of keys) {
+    const direct = asTrimmedText(record[key]);
+    if (direct) return direct;
+  }
+
+  const entries = Object.entries(record);
+  for (const key of keys) {
+    const normalizedKey = key.toLowerCase();
+    const hit = entries.find(([entryKey]) => entryKey.toLowerCase() === normalizedKey);
+    if (!hit) continue;
+    const value = asTrimmedText(hit[1]);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function rawItemToHrmAttEtcInfo(
+  raw: z.infer<typeof hrmEtcInfoItemSchema>,
+): HrmAttEtcInfo {
+  const record = raw as Record<string, unknown>;
+  return {
+    att_corp_code: pickRecordField(record, "att_corp_code", "ATT_CORP_CODE"),
+    etc_name: pickRecordField(record, "etc_name", "ETC_NAME", "p_etc_name"),
+    cel_no: pickRecordField(record, "cel_no", "CEL_NO", "p_cel_no").replace(
+      /\D/g,
+      "",
+    ).slice(0, 11),
+    gender: pickRecordField(record, "gender", "GENDER", "p_gender"),
+  };
 }
 
 /**
@@ -61,10 +104,5 @@ export async function fetchHrmAttEtcInfo(
   const first = parsed.data.items?.[0];
   if (!first) return null;
 
-  return {
-    att_corp_code: first.att_corp_code.trim(),
-    etc_name: first.etc_name.trim(),
-    cel_no: first.cel_no.replace(/\D/g, "").slice(0, 11),
-    gender: first.gender.trim(),
-  };
+  return rawItemToHrmAttEtcInfo(first);
 }

@@ -61,6 +61,7 @@ export function useRegNumberLookup({
 }: Params) {
   const lookupInFlightRef = useRef(false);
   const pendingFocusAfterLookupRef = useRef(false);
+  const hrmManagedFullNameRef = useRef<string | null>(null);
 
   const lookupAndApply = useCallback(
     async (regNumber: string): Promise<RegNumberLookupResult> => {
@@ -74,9 +75,14 @@ export function useRegNumberLookup({
         return { hrmFound: false, hasAttendanceData: false };
       }
 
+      hrmManagedFullNameRef.current = null;
+
       const info = await fetchHrmAttEtcInfo(trimmedBase, idno);
       let hrmFound = false;
       if (info) {
+        if (info.etc_name) {
+          hrmManagedFullNameRef.current = info.etc_name;
+        }
         applyHrmAttEtcInfoToForm(info, setValue, {
           companyOpts: getStaticAttr2Options(sortedEnabledRows, "02"),
           genderOpts: getStaticAttr2Options(sortedEnabledRows, "05"),
@@ -104,6 +110,14 @@ export function useRegNumberLookup({
             { shouldValidate: true },
           );
         }
+      }
+
+      const managedName = hrmManagedFullNameRef.current;
+      if (managedName) {
+        setValue("fullName", managedName, {
+          shouldValidate: true,
+          shouldDirty: true,
+        });
       }
 
       return { hrmFound, hasAttendanceData };
@@ -176,5 +190,5 @@ export function useRegNumberLookup({
     [formRef, lookupAndApply, setValue, sortedEnabledRows],
   );
 
-  return { onRegNumberKeyDown };
+  return { onRegNumberKeyDown, hrmManagedFullNameRef };
 }

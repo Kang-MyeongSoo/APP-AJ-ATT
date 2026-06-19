@@ -285,9 +285,14 @@ export function applyCaseWhenDrivenFormFields(
      * 출퇴근 등 다른 필드와 연동해 바뀌지 않음 — 사용자·콤보 초기값만.
      */
     managedShift?: boolean;
+    /**
+     * 03(성명)은 등록번호 HRM 조회로 채운 뒤 CASE WHEN 자동 반영 제외.
+     */
+    managedFullName?: boolean;
   },
 ) {
   const managedShift = options?.managedShift ?? true;
+  const managedFullName = options?.managedFullName ?? false;
 
   for (const [code, row] of rowsByCode) {
     const init = row.c_attr3?.trim() ?? "";
@@ -296,6 +301,9 @@ export function applyCaseWhenDrivenFormFields(
       continue;
     }
     if (managedShift && code === "07") {
+      continue;
+    }
+    if (managedFullName && code === "03") {
       continue;
     }
     if (

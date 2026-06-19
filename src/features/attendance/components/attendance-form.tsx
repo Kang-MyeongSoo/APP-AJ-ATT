@@ -462,7 +462,7 @@ export const AttendanceForm = forwardRef<
 
   const { control, setValue, getValues, trigger, reset } = form;
 
-  const { onRegNumberKeyDown } = useRegNumberLookup({
+  const { onRegNumberKeyDown, hrmManagedFullNameRef } = useRegNumberLookup({
     serverBaseUrl,
     sortedEnabledRows,
     setValue,
@@ -471,6 +471,7 @@ export const AttendanceForm = forwardRef<
   });
 
   const resetAfterSuccessfulSubmit = useCallback(() => {
+    hrmManagedFullNameRef.current = null;
     const nextValues = useServerLayout
       ? buildAttendanceFormResetValues(sortedEnabledRows, departmentOptions)
       : createDefaultAttendanceFormValues();
@@ -482,6 +483,7 @@ export const AttendanceForm = forwardRef<
     sortedEnabledRows,
     departmentOptions,
     staticFieldOpts07,
+    hrmManagedFullNameRef,
   ]);
 
   const validateClockOutCheckIn = useCallback(
@@ -925,7 +927,11 @@ export const AttendanceForm = forwardRef<
           break;
         }
         case "03":
-          if (init && !isCaseWhenInitialValue(init)) {
+          if (
+            init &&
+            !isCaseWhenInitialValue(init) &&
+            !hrmManagedFullNameRef.current
+          ) {
             setValue("fullName", init, { shouldValidate: true });
             fieldValuesByCode["03"] = init;
           }
@@ -1065,6 +1071,7 @@ export const AttendanceForm = forwardRef<
       {
         managedByWorkInOut: workTimeAutoOnly,
         managedLiveDate: liveWorkDateEnabled,
+        managedFullName: Boolean(hrmManagedFullNameRef.current),
       },
     );
     syncLiveAttendanceFields();
@@ -1076,6 +1083,7 @@ export const AttendanceForm = forwardRef<
     getValues,
     workTimeAutoOnly,
     liveWorkDateEnabled,
+    hrmManagedFullNameRef,
   ]);
 
   useEffect(() => {
@@ -1103,6 +1111,7 @@ export const AttendanceForm = forwardRef<
       {
         managedByWorkInOut: workTimeAutoOnly,
         managedLiveDate: liveWorkDateEnabled,
+        managedFullName: Boolean(hrmManagedFullNameRef.current),
       },
     );
     syncLiveAttendanceFields();
@@ -1116,6 +1125,7 @@ export const AttendanceForm = forwardRef<
     workTimeAutoOnly,
     liveWorkDateEnabled,
     syncLiveAttendanceFields,
+    hrmManagedFullNameRef,
   ]);
 
   useEffect(() => {
