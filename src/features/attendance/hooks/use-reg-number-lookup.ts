@@ -62,6 +62,7 @@ export function useRegNumberLookup({
   const lookupInFlightRef = useRef(false);
   const pendingFocusAfterLookupRef = useRef(false);
   const hrmManagedFullNameRef = useRef<string | null>(null);
+  const lastTriggeredIdnoRef = useRef<string | null>(null);
 
   const lookupAndApply = useCallback(
     async (regNumber: string): Promise<RegNumberLookupResult> => {
@@ -167,6 +168,7 @@ export function useRegNumberLookup({
         return;
       }
       lookupInFlightRef.current = true;
+      lastTriggeredIdnoRef.current = idno;
 
       void (async () => {
         let result: RegNumberLookupResult = {
@@ -190,5 +192,33 @@ export function useRegNumberLookup({
     [formRef, lookupAndApply, setValue, sortedEnabledRows],
   );
 
-  return { onRegNumberKeyDown, hrmManagedFullNameRef };
+  const onRegNumberBlur = useCallback(
+    (regNumber: string) => {
+      const idno = regNumber.replace(/\D/g, "").slice(0, 13);
+      if (idno.length !== 13) return;
+      // Enter/Tab 직후 blur가 연달아 오면 중복 조회 방지
+      if (lastTriggeredIdnoRef.current === idno) return;
+      if (lookupInFlightRef.current) return;
+
+      lastTriggeredIdnoRef.current = idno;
+
+      applyGenderFromRegNumber(
+        regNumber,
+        setValue,
+        getStaticAttr2Options(sortedEnabledRows, "05"),
+      );
+
+      lookupInFlightRef.current = true;
+      void (async () => {
+        try {
+          await lookupAndApply(regNumber);
+        } finally {
+          lookupInFlightRef.current = false;
+        }
+      })();
+    },
+    [lookupAndApply, setValue, sortedEnabledRows],
+  );
+
+  return { onRegNumberKeyDown, onRegNumberBlur, hrmManagedFullNameRef };
 }

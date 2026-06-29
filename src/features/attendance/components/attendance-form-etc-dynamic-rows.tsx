@@ -146,6 +146,7 @@ function EtcFieldMiddle({
       event: Parameters<KeyboardEventHandler<HTMLElement>>[0],
       regNumber: string,
     ) => void;
+    onRegNumberBlur?: (regNumber: string) => void;
     onWorkInOutSelected?: (workInOutValue: string) => void;
   };
 }) {
@@ -164,6 +165,7 @@ function EtcFieldMiddle({
       name={field.name}
       value={String(field.value ?? "")}
       onBlur={field.onBlur}
+      onBlurLookup={code === "01" ? extras.onRegNumberBlur : undefined}
       onChange={field.onChange}
       className={inputClass}
       onKeyDown={handleRegNumberKeyDown}
@@ -656,6 +658,7 @@ type Props = {
     event: Parameters<KeyboardEventHandler<HTMLElement>>[0],
     regNumber: string,
   ) => void;
+  onRegNumberBlur?: (regNumber: string) => void;
   onWorkInOutSelected?: (workInOutValue: string) => void;
 };
 
@@ -669,6 +672,7 @@ export function AttendanceFormEtcDynamicRows({
   workTimeAutoOnly,
   allowDevEndTimeEdit,
   onRegNumberKeyDown,
+  onRegNumberBlur,
   onWorkInOutSelected,
 }: Props) {
   const normalizedRows = useMemo(
@@ -692,6 +696,7 @@ export function AttendanceFormEtcDynamicRows({
     workTimeAutoOnly,
     allowDevEndTimeEdit,
     onRegNumberKeyDown,
+    onRegNumberBlur,
     onWorkInOutSelected,
   };
 

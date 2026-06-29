@@ -10,6 +10,7 @@ type RegNumberMaskedInputProps = {
   value: string;
   onChange: (value: string) => void;
   onBlur: () => void;
+  onBlurLookup?: (value: string) => void;
   name: string;
   ref: Ref<HTMLInputElement>;
   className?: string;
@@ -20,6 +21,7 @@ export function RegNumberMaskedInput({
   value,
   onChange,
   onBlur,
+  onBlurLookup,
   name,
   ref,
   className,
@@ -40,7 +42,10 @@ export function RegNumberMaskedInput({
         maxLength={13}
         placeholder="13자리"
         value={value}
-        onBlur={onBlur}
+        onBlur={() => {
+          onBlur();
+          onBlurLookup?.(value);
+        }}
         onKeyDown={onKeyDown}
         onChange={(e) => {
           const v = e.target.value.replace(/\D/g, "").slice(0, 13);

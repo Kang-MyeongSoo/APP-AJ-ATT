@@ -462,7 +462,7 @@ export const AttendanceForm = forwardRef<
 
   const { control, setValue, getValues, trigger, reset } = form;
 
-  const { onRegNumberKeyDown, hrmManagedFullNameRef } = useRegNumberLookup({
+  const { onRegNumberKeyDown, onRegNumberBlur, hrmManagedFullNameRef } = useRegNumberLookup({
     serverBaseUrl,
     sortedEnabledRows,
     setValue,
@@ -1248,6 +1248,7 @@ export const AttendanceForm = forwardRef<
                       workTimeAutoOnly={workTimeAutoOnly}
                       allowDevEndTimeEdit={allowDevEndTimeEdit}
                       onRegNumberKeyDown={onRegNumberKeyDown}
+                      onRegNumberBlur={onRegNumberBlur}
                       onWorkInOutSelected={handleWorkInOutSelected}
                     />
                   ) : useServerEmptyNotice ? (
@@ -1279,6 +1280,7 @@ export const AttendanceForm = forwardRef<
                                     name={field.name}
                                     value={String(field.value ?? "")}
                                     onBlur={field.onBlur}
+                                    onBlurLookup={onRegNumberBlur}
                                     onChange={field.onChange}
                                     className={inputClass}
                                     onKeyDown={(e) =>
