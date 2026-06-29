@@ -462,7 +462,13 @@ export const AttendanceForm = forwardRef<
 
   const { control, setValue, getValues, trigger, reset } = form;
 
-  const { onRegNumberKeyDown, onRegNumberBlur, hrmManagedFullNameRef } = useRegNumberLookup({
+  const {
+    onRegNumberKeyDown,
+    onRegNumberBlur,
+    ensureRegNumberLookup,
+    resetLookupState,
+    hrmManagedFullNameRef,
+  } = useRegNumberLookup({
     serverBaseUrl,
     sortedEnabledRows,
     setValue,
@@ -471,7 +477,7 @@ export const AttendanceForm = forwardRef<
   });
 
   const resetAfterSuccessfulSubmit = useCallback(() => {
-    hrmManagedFullNameRef.current = null;
+    resetLookupState();
     const nextValues = useServerLayout
       ? buildAttendanceFormResetValues(sortedEnabledRows, departmentOptions)
       : createDefaultAttendanceFormValues();
@@ -483,7 +489,7 @@ export const AttendanceForm = forwardRef<
     sortedEnabledRows,
     departmentOptions,
     staticFieldOpts07,
-    hrmManagedFullNameRef,
+    resetLookupState,
   ]);
 
   const validateClockOutCheckIn = useCallback(
@@ -582,6 +588,7 @@ export const AttendanceForm = forwardRef<
         return { ok: true, values };
       },
       validateBeforeSend: async () => {
+        await ensureRegNumberLookup(String(getValues("regNumber") ?? ""));
         const valid = await trigger();
         if (!valid) {
           const message =
@@ -615,6 +622,7 @@ export const AttendanceForm = forwardRef<
       form,
       trigger,
       getValues,
+      ensureRegNumberLookup,
       resetAfterSuccessfulSubmit,
       validateClockOutCheckIn,
       visibleFieldCodes,

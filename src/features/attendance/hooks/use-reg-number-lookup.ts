@@ -63,6 +63,7 @@ export function useRegNumberLookup({
   const pendingFocusAfterLookupRef = useRef(false);
   const hrmManagedFullNameRef = useRef<string | null>(null);
   const lastTriggeredIdnoRef = useRef<string | null>(null);
+  const pendingLookupPromiseRef = useRef<Promise<void> | null>(null);
 
   const lookupAndApply = useCallback(
     async (regNumber: string): Promise<RegNumberLookupResult> => {
@@ -170,7 +171,7 @@ export function useRegNumberLookup({
       lookupInFlightRef.current = true;
       lastTriggeredIdnoRef.current = idno;
 
-      void (async () => {
+      const lookupPromise = (async () => {
         let result: RegNumberLookupResult = {
           hrmFound: false,
           hasAttendanceData: false,
@@ -182,12 +183,14 @@ export function useRegNumberLookup({
           moveFocusAfterLookup(result);
         } finally {
           lookupInFlightRef.current = false;
+          pendingLookupPromiseRef.current = null;
           if (pendingFocusAfterLookupRef.current) {
             pendingFocusAfterLookupRef.current = false;
             moveFocusAfterLookup(result);
           }
         }
       })();
+      pendingLookupPromiseRef.current = lookupPromise;
     },
     [formRef, lookupAndApply, setValue, sortedEnabledRows],
   );
@@ -209,16 +212,69 @@ export function useRegNumberLookup({
       );
 
       lookupInFlightRef.current = true;
-      void (async () => {
+      const lookupPromise = (async () => {
         try {
           await lookupAndApply(regNumber);
         } finally {
           lookupInFlightRef.current = false;
+          pendingLookupPromiseRef.current = null;
         }
       })();
+      pendingLookupPromiseRef.current = lookupPromise;
     },
     [lookupAndApply, setValue, sortedEnabledRows],
   );
 
-  return { onRegNumberKeyDown, onRegNumberBlur, hrmManagedFullNameRef };
+  // validateBeforeSend에서 호출 — 진행 중이면 기다리고, 미조회면 즉시 트리거 후 완료 대기
+  const ensureRegNumberLookup = useCallback(
+    async (regNumber: string): Promise<void> => {
+      const idno = regNumber.replace(/\D/g, "").slice(0, 13);
+      if (idno.length !== 13) return;
+
+      // 이미 이 번호로 조회가 트리거됨 — 진행 중이면 대기, 완료됐으면 즉시 반환
+      if (lastTriggeredIdnoRef.current === idno) {
+        await (pendingLookupPromiseRef.current ?? Promise.resolve());
+        return;
+      }
+
+      // 다른 번호로 조회 중 — 완료까지 대기
+      if (lookupInFlightRef.current) {
+        await (pendingLookupPromiseRef.current ?? Promise.resolve());
+        return;
+      }
+
+      // 조회 미실행 — 즉시 트리거 후 완료 대기
+      lastTriggeredIdnoRef.current = idno;
+      applyGenderFromRegNumber(
+        regNumber,
+        setValue,
+        getStaticAttr2Options(sortedEnabledRows, "05"),
+      );
+      lookupInFlightRef.current = true;
+      const lookupPromise = (async () => {
+        try {
+          await lookupAndApply(regNumber);
+        } finally {
+          lookupInFlightRef.current = false;
+          pendingLookupPromiseRef.current = null;
+        }
+      })();
+      pendingLookupPromiseRef.current = lookupPromise;
+      await lookupPromise;
+    },
+    [lookupAndApply, setValue, sortedEnabledRows],
+  );
+
+  const resetLookupState = useCallback(() => {
+    hrmManagedFullNameRef.current = null;
+    lastTriggeredIdnoRef.current = null;
+  }, []);
+
+  return {
+    onRegNumberKeyDown,
+    onRegNumberBlur,
+    ensureRegNumberLookup,
+    resetLookupState,
+    hrmManagedFullNameRef,
+  };
 }
