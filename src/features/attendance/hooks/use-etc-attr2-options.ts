@@ -25,7 +25,7 @@ export function useEtcAttr2Options(c_attr2: string, serverBaseUrl: string) {
     queryKey: ["etcAttr2Options", trimmedBase, cidParam],
     queryFn: () => fetchMstCodeOptions(trimmedBase, cidParam!),
     enabled: Boolean(cidParam && trimmedBase),
-    staleTime: 0,
+    staleTime: 5 * 60 * 1000,
   });
 
   const opts: EtcAttr2Option[] = useMemo(() => {

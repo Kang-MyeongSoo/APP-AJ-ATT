@@ -42,7 +42,7 @@ import type { DepartmentWorkOption } from "@/features/attendance/lib/attendance-
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { KeyboardEventHandler, ReactNode } from "react";
-import { Fragment, useEffect, useMemo } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type {
   Control,
   ControllerRenderProps,
@@ -192,6 +192,12 @@ function EtcFieldMiddle({
   const { opts, isCidReference, isPending, isError, error } =
     useEtcAttr2Options(row.c_attr2, extras.serverBaseUrl);
 
+  // field.onChange는 매 렌더마다 새 참조 → ref로 최신값 유지하고 deps에서 제거
+  const stableOnChangeRef = useRef(field.onChange);
+  useLayoutEffect(() => {
+    stableOnChangeRef.current = field.onChange;
+  });
+
   useEffect(() => {
     if (kind !== "combo" && kind !== "radio") return;
     if (opts.length === 0) return;
@@ -206,8 +212,9 @@ function EtcFieldMiddle({
           o.label.toLowerCase() === current.toLowerCase(),
       );
       if (matched) {
-        if (matched.value !== current) {
-          field.onChange(matched.value);
+        // matched.value가 ""인 경우(서버 데이터 오류) 는 무시
+        if (matched.value && matched.value !== current) {
+          stableOnChangeRef.current(matched.value);
         }
         return;
       }
@@ -216,23 +223,23 @@ function EtcFieldMiddle({
     const init = row.c_attr3?.trim() ?? "";
     if (init) {
       const exact = opts.find((o) => o.value === init);
-      if (exact) {
-        field.onChange(exact.value);
+      if (exact?.value) {
+        stableOnChangeRef.current(exact.value);
         return;
       }
       const ci = opts.find((o) => o.value.toLowerCase() === init.toLowerCase());
-      if (ci) {
-        field.onChange(ci.value);
+      if (ci?.value) {
+        stableOnChangeRef.current(ci.value);
         return;
       }
       const byLabel = opts.find(
         (o) => o.label === init || o.label.toLowerCase() === init.toLowerCase(),
       );
-      if (byLabel) {
-        field.onChange(byLabel.value);
+      if (byLabel?.value) {
+        stableOnChangeRef.current(byLabel.value);
       }
     }
-  }, [kind, opts, row.c_attr3, field.value, field.onChange]);
+  }, [kind, opts, row.c_attr3, field.value]);
 
   const optionLoadState = (): ReactNode | null => {
     if (!isCidReference) return null;
