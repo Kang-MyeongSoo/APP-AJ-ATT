@@ -73,6 +73,7 @@ export async function ensureClockInExistsForClockOut(params: {
   workDate: string;
   workInOut: string;
   workInOutOptions: Array<{ label: string; value: string }>;
+  shift?: string;
 }): Promise<ClockOutCheckInValidationResult> {
   if (!isClockOutSelection(params.workInOut, params.workInOutOptions)) {
     return { ok: true };
@@ -82,6 +83,7 @@ export async function ensureClockInExistsForClockOut(params: {
     params.serverBaseUrl,
     params.regNumber,
     params.workDate,
+    params.shift,
   );
 
   return mapDptWorkResult(dptResult);

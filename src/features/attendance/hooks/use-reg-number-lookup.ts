@@ -97,6 +97,7 @@ export function useRegNumberLookup({
         trimmedBase,
         idno,
         getValues("workDate"),
+        getValues("shift"),
       );
       if (dptResult.ok) {
         hasAttendanceData = dptResult.responseFlag === "0";

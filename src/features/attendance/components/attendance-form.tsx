@@ -510,6 +510,7 @@ export const AttendanceForm = forwardRef<
         workDate: values.workDate,
         workInOut: values.workInOut,
         workInOutOptions: workInOutValidationOptions,
+        shift: values.shift,
       });
 
       if (clockOutCheck.ok === false) {
@@ -542,6 +543,7 @@ export const AttendanceForm = forwardRef<
         workDate: getValues("workDate"),
         workInOut: workInOutValue,
         workInOutOptions: workInOutValidationOptions,
+        shift: getValues("shift"),
       });
 
       if (clockOutCheck.ok === false) {

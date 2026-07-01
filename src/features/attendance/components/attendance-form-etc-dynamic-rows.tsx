@@ -331,7 +331,7 @@ function EtcFieldMiddle({
             extras.onWorkInOutSelected?.(String(v));
           }
         }}
-        value={selectValue}
+        value={selectValue ?? ""}
       >
         <SelectTrigger
           className={

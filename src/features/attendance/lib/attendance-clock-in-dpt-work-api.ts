@@ -54,6 +54,7 @@ export async function fetchClockInDepartmentWork(
   serverBaseUrl: string,
   regNumber: string,
   workDate: string,
+  shift?: string,
 ): Promise<FetchClockInDptWorkResult> {
   const trimmedBase = serverBaseUrl.trim();
   if (!trimmedBase) {
@@ -74,6 +75,7 @@ export async function fetchClockInDepartmentWork(
     proc: "usp_mobile_select_att_etc_dpt_work",
     param1: idno,
     param2: attDate,
+    param3: shift ?? "",
   });
 
   if (isAspProxyError(proxy)) {
